@@ -1,0 +1,546 @@
+package com.royna.stickersftw.ui.components
+
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Workspaces
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import com.royna.stickersftw.model.PackStatus
+import com.royna.stickersftw.model.StickerPack
+import com.royna.stickersftw.model.TelegramClientInfo
+import com.royna.stickersftw.model.TelegramClientKind
+import com.royna.stickersftw.ui.theme.PositiveGreen
+import com.royna.stickersftw.ui.theme.TelegramBlue
+import com.royna.stickersftw.ui.theme.WhatsAppGreen
+import java.io.File
+
+@Composable
+fun PageHeader(
+    title: String,
+    subtitle: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineLarge,
+        )
+        if (subtitle != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+fun PackStatusChip(
+    status: PackStatus,
+    modifier: Modifier = Modifier,
+) {
+    val (label, color) = when (status) {
+        PackStatus.Building -> "Building" to MaterialTheme.colorScheme.outline
+        PackStatus.Downloading -> "Downloading" to TelegramBlue
+        PackStatus.Converting -> "Converting" to TelegramBlue
+        PackStatus.Ready -> "Ready" to PositiveGreen
+        PackStatus.Failed -> "Failed" to MaterialTheme.colorScheme.error
+    }
+    Surface(
+        modifier = modifier,
+        color = color.copy(alpha = 0.12f),
+        contentColor = color,
+        shape = RoundedCornerShape(100.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        )
+    }
+}
+
+@Composable
+fun StickerThumbnail(
+    path: String?,
+    modifier: Modifier = Modifier,
+    fallbackEmoji: String = "✨",
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (path != null) {
+            AsyncImage(
+                model = File(path),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(fallbackEmoji, fontSize = 30.sp)
+        }
+    }
+}
+
+@Composable
+fun StickerPreviewImagesRow(
+    paths: List<String>,
+    modifier: Modifier = Modifier,
+    max: Int = 6,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        paths.take(max).forEach { path ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                AsyncImage(
+                    model = File(path),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(36.dp).padding(4.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun TelegramClientInfo?.detailLabel(): String = when (this?.kind) {
+    null -> "Not installed"
+    TelegramClientKind.Official -> "Installed"
+    TelegramClientKind.OfficialAlt -> displayName
+    TelegramClientKind.ThirdParty -> "$displayName (Third-party)"
+}
+
+@Composable
+fun ServiceStatusPanel(
+    serverUrl: String,
+    telegramClient: TelegramClientInfo?,
+    whatsappInstalled: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(30.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        StatusRow(
+            icon = Icons.Rounded.Cloud,
+            dotColor = PositiveGreen,
+            title = "Server",
+            detail = serverUrl.removePrefix("http://").removePrefix("https://"),
+            status = "Ready",
+            statusColor = PositiveGreen,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+        StatusRow(
+            icon = Icons.AutoMirrored.Rounded.Send,
+            dotColor = TelegramBlue,
+            title = "Telegram",
+            detail = telegramClient.detailLabel(),
+            status = if (telegramClient != null) "OK" else "—",
+            statusColor = if (telegramClient != null) TelegramBlue else MaterialTheme.colorScheme.outline,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+        StatusRow(
+            icon = Icons.Rounded.Workspaces,
+            dotColor = if (whatsappInstalled) WhatsAppGreen else MaterialTheme.colorScheme.outline,
+            title = "WhatsApp",
+            detail = if (whatsappInstalled) "Installed" else "Not installed",
+            status = if (whatsappInstalled) "OK" else "—",
+            statusColor = if (whatsappInstalled) WhatsAppGreen else MaterialTheme.colorScheme.error,
+        )
+    }
+}
+
+@Composable
+private fun StatusRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    dotColor: Color,
+    title: String,
+    detail: String,
+    status: String,
+    statusColor: Color,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .background(dotColor, CircleShape),
+        )
+        Spacer(Modifier.width(14.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.width(102.dp),
+        )
+        Text(
+            text = detail,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Surface(
+            color = statusColor.copy(alpha = 0.10f),
+            contentColor = statusColor,
+            shape = RoundedCornerShape(100.dp),
+        ) {
+            Text(
+                text = status,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 5.dp),
+            )
+        }
+    }
+}
+
+@Composable
+fun SectionHeader(
+    title: String,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.PushPin,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(19.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.weight(1f),
+        )
+        if (action != null && onAction != null) {
+            Text(
+                text = action,
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.clickable(onClick = onAction),
+            )
+        }
+    }
+}
+
+@Composable
+fun PackGridCard(
+    pack: StickerPack,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(272.dp)
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                    .padding(18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StickerThumbnail(pack.trayIconPath, modifier = Modifier.size(56.dp).weight(1f, fill = false))
+                PackStatusChip(pack.status)
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(pack.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = "${pack.author} · ${pack.stickerCount} stickers",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                StickerPreviewImagesRow(pack.previewStickerPaths, max = 4)
+            }
+        }
+    }
+}
+
+@Composable
+fun ImportPackCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String = "Import Pack",
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.Add,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(272.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .border(
+                width = 2.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
+                shape = RoundedCornerShape(28.dp),
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(14.dp).size(30.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+fun PackListCard(
+    pack: StickerPack,
+    onClick: () -> Unit,
+    onTogglePinned: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(25.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        CircleShape,
+                    )
+                    .clip(CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                StickerThumbnail(pack.trayIconPath, modifier = Modifier.size(56.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = pack.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (pack.isPinned) {
+                        Spacer(Modifier.width(6.dp))
+                        Icon(
+                            Icons.Rounded.PushPin,
+                            contentDescription = "Pinned",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(5.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    PackStatusChip(pack.status)
+                    Text(
+                        text = "${pack.stickerCount} stickers",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(9.dp))
+                StickerPreviewImagesRow(pack.previewStickerPaths, max = 6)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = pack.updatedLabel,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Rounded.MoreVert, contentDescription = "Pack menu")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(if (pack.isPinned) "Unpin" else "Pin") },
+                            onClick = {
+                                menuExpanded = false
+                                onTogglePinned()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Rounded.PushPin, contentDescription = null)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete") },
+                            onClick = {
+                                menuExpanded = false
+                                onDelete()
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SuccessBadge(text: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = PositiveGreen.copy(alpha = 0.12f),
+        contentColor = PositiveGreen,
+        shape = RoundedCornerShape(100.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+/** Shared "Add to WhatsApp" action: launches WhatsApp's ENABLE_STICKER_PACK
+ * confirm dialog and always re-checks the real whitelist state afterward
+ * (WhatsApp's result code alone isn't reliable), used by both
+ * ConversionScreen and PackDetailScreen. */
+@Composable
+fun AddToWhatsAppButton(
+    enabled: Boolean,
+    whatsappAvailable: Boolean,
+    onBuildIntent: () -> Intent?,
+    onResult: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { onResult() }
+
+    Column(modifier = modifier) {
+        Button(
+            onClick = { onBuildIntent()?.let { launcher.launch(it) } },
+            enabled = enabled && whatsappAvailable,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Rounded.Workspaces, contentDescription = null)
+            Text("  Add to WhatsApp")
+        }
+        if (!whatsappAvailable) {
+            Text(
+                text = "WhatsApp isn't installed on this device.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 6.dp, start = 4.dp),
+            )
+        }
+    }
+}

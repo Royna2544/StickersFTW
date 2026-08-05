@@ -1,0 +1,39 @@
+package com.royna.stickersftw.data.local
+
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
+
+@Entity(
+    tableName = "stickers",
+    foreignKeys = [
+        ForeignKey(
+            entity = PackEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["packId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("packId")],
+)
+data class StickerEntity(
+    @PrimaryKey(autoGenerate = true) val rowId: Long = 0,
+    val packId: String,
+    /** Telegram file_unique_id, for stickers that came from a fetched set. */
+    val remoteId: String?,
+    val position: Int,
+    /** Comma-joined, 1-3 emoji -- matches both WhatsApp's and Telegram's
+     * per-sticker emoji column shape directly. */
+    val emojis: String,
+    val sniffedContentType: String?,
+    /** Original content:// URI, for a sticker picked from the device in the
+     * Create Pack flow. */
+    val sourceLocalUri: String?,
+    val isVideo: Boolean,
+    val originalFilePath: String?,
+    val convertedWhatsappPath: String?,
+    val convertedTelegramPath: String?,
+    val conversionStatus: String,
+    val conversionError: String?,
+)

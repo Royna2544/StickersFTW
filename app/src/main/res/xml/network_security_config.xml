@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The server URL is an arbitrary user-configured host (LAN IP, the 10.0.2.2
+  emulator alias, or a self-hosted domain) set at runtime in Settings, not a
+  fixed known domain, so a base-config scoped to cleartext only is the
+  correct scope here, rather than enumerating specific hosts. This app makes
+  no other network calls, so the blast radius of permitting cleartext is
+  limited to the one server the user explicitly configured.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,48 @@
+package com.royna.stickersftw.data.local
+
+import androidx.room.Dao
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface PackDao {
+    @Transaction
+    @Query("SELECT * FROM packs ORDER BY isPinned DESC, updatedAtMillis DESC")
+    fun observePacksWithStickers(): Flow<List<PackWithStickers>>
+
+    @Transaction
+    @Query("SELECT * FROM packs WHERE id = :id")
+    fun observePackWithStickers(id: String): Flow<PackWithStickers?>
+
+    @Query("SELECT * FROM packs WHERE id = :id")
+    suspend fun getPack(id: String): PackEntity?
+
+    // Blocking (non-suspend) reads, used only by StickerContentProvider --
+    // WhatsApp calls the provider from Binder threads in its own process,
+    // never this process's main thread, so a blocking query here is safe
+    // and matches WhatsApp's own sample provider's synchronous SQLite reads.
+    @Query("SELECT * FROM packs WHERE status = 'Ready'")
+    fun getReadyPacksBlocking(): List<PackEntity>
+
+    @Query("SELECT * FROM packs WHERE id = :id AND status = 'Ready'")
+    fun getReadyPackBlocking(id: String): PackEntity?
+
+    @Upsert
+    suspend fun upsert(pack: PackEntity)
+
+    @Query("UPDATE packs SET isPinned = :pinned WHERE id = :id")
+    suspend fun setPinned(id: String, pinned: Boolean)
+
+    @Query("UPDATE packs SET whatsappAdded = :added WHERE id = :id")
+    suspend fun setWhatsappAdded(id: String, added: Boolean)
+
+    @Query(
+        "UPDATE packs SET telegramSetName = :fullName, updatedAtMillis = :now WHERE id = :id",
+    )
+    suspend fun setTelegramSetName(id: String, fullName: String, now: Long)
+
+    @Query("DELETE FROM packs WHERE id = :id")
+    suspend fun delete(id: String)
+}
