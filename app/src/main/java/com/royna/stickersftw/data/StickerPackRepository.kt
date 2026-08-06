@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import com.royna.stickersftw.conversion.PackConversionPlanner
 import com.royna.stickersftw.conversion.PlannerResult
+import com.royna.stickersftw.conversion.SizeBudget
 import com.royna.stickersftw.conversion.StickerConversionPipeline
 import com.royna.stickersftw.conversion.StickerConvertResult
 import com.royna.stickersftw.conversion.StickerMediaType
@@ -18,6 +19,7 @@ import com.royna.stickersftw.data.local.StickerEntity
 import com.royna.stickersftw.data.model.PackOperationProgress
 import com.royna.stickersftw.data.model.PackPreview
 import com.royna.stickersftw.data.model.PreviewResult
+import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.PickedMediaItem
@@ -26,6 +28,8 @@ import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramPushState
 import com.royna.stickersftw.network.RetrofitProvider
 import com.royna.stickersftw.network.TelegramStickersApi
+import com.royna.stickersftw.network.dto.StickerDto
+import com.royna.stickersftw.network.dto.StickerSetDto
 import com.royna.stickersftw.network.toApiErrorOrNull
 import com.royna.stickersftw.network.withRateLimitRetry
 import com.royna.stickersftw.whatsapp.WhatsAppContract
@@ -35,6 +39,7 @@ import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -82,6 +87,7 @@ class StickerPackRepository(private val appContext: Context) {
                         title = dto.title,
                         totalStickerCount = dto.stickers.size,
                         partCount = partRanges.size,
+                        stickers = dto.stickers.map { PreviewSticker(it.id, it.emoji) },
                         emojis = dto.stickers.mapNotNull { it.emoji }.distinct().take(8),
                         warning = if (partRanges.size > 1) {
                             "This pack has ${dto.stickers.size} stickers. WhatsApp and Telegram packs " +
@@ -101,28 +107,8 @@ class StickerPackRepository(private val appContext: Context) {
         input: String,
         partIndex: Int = 0,
     ): Flow<PackOperationProgress> = flow {
-        val shortNameInput = extractShortName(input)
-        if (shortNameInput.isBlank()) {
-            emit(PackOperationProgress.Failed("Enter a Telegram sticker pack link or short name."))
-            return@flow
-        }
-
-        emit(PackOperationProgress.Progress("Reading pack metadata", 0.05f))
-        val api = RetrofitProvider.apiFor(serverUrl)
-        val setResponse = try {
-            withRateLimitRetry { api.getSet(shortNameInput) }
-        } catch (e: Exception) {
-            emit(PackOperationProgress.Failed(describeNetworkError(e)))
-            return@flow
-        }
-        setResponse.toApiErrorOrNull()?.let {
-            emit(PackOperationProgress.Failed(it.userMessage))
-            return@flow
-        }
-        val setDto = setResponse.body() ?: run {
-            emit(PackOperationProgress.Failed("Empty response from server."))
-            return@flow
-        }
+        val fetched = fetchStickerSet(serverUrl, input) ?: return@flow
+        val (shortNameInput, setDto) = fetched
 
         val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
         if (countResult is PlannerResult.Rejected) {
@@ -136,8 +122,89 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
-        val partSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
+        val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
+        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, titleSuffix)
+    }.catch { e ->
+        finalizePackFailed(packId, e.message ?: "Import failed.")
+        emit(PackOperationProgress.Failed(e.message ?: "Import failed."))
+    }.flowOn(Dispatchers.IO)
+
+    /** Imports an arbitrary, hand-picked subset of the source pack's
+     * stickers (order preserved) instead of a contiguous part -- backs the
+     * custom sticker picker. */
+    fun importAndConvertCustom(
+        packId: String,
+        serverUrl: String,
+        input: String,
+        selectedIds: Set<String>,
+    ): Flow<PackOperationProgress> = flow {
+        val fetched = fetchStickerSet(serverUrl, input) ?: return@flow
+        val (shortNameInput, setDto) = fetched
+
+        val stickerDtos = setDto.stickers.filter { it.id in selectedIds }
+        if (stickerDtos.size < SizeBudget.MIN_STICKERS) {
+            emit(PackOperationProgress.Failed("Select at least ${SizeBudget.MIN_STICKERS} stickers."))
+            return@flow
+        }
+        if (stickerDtos.size > SizeBudget.MAX_STICKERS) {
+            emit(PackOperationProgress.Failed("Select at most ${SizeBudget.MAX_STICKERS} stickers."))
+            return@flow
+        }
+
+        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, " (Custom)")
+    }.catch { e ->
+        finalizePackFailed(packId, e.message ?: "Import failed.")
+        emit(PackOperationProgress.Failed(e.message ?: "Import failed."))
+    }.flowOn(Dispatchers.IO)
+
+    /** Fetches and validates the sticker set's metadata, emitting a
+     * [PackOperationProgress.Failed] and returning null on any failure so
+     * callers can just bail out with `?: return@flow`. */
+    private suspend fun FlowCollector<PackOperationProgress>.fetchStickerSet(
+        serverUrl: String,
+        input: String,
+    ): Pair<String, StickerSetDto>? {
+        val shortNameInput = extractShortName(input)
+        if (shortNameInput.isBlank()) {
+            emit(PackOperationProgress.Failed("Enter a Telegram sticker pack link or short name."))
+            return null
+        }
+
+        emit(PackOperationProgress.Progress("Reading pack metadata", 0.05f))
+        val api = RetrofitProvider.apiFor(serverUrl)
+        val setResponse = try {
+            withRateLimitRetry { api.getSet(shortNameInput) }
+        } catch (e: Exception) {
+            emit(PackOperationProgress.Failed(describeNetworkError(e)))
+            return null
+        }
+        setResponse.toApiErrorOrNull()?.let {
+            emit(PackOperationProgress.Failed(it.userMessage))
+            return null
+        }
+        val setDto = setResponse.body() ?: run {
+            emit(PackOperationProgress.Failed("Empty response from server."))
+            return null
+        }
+        return shortNameInput to setDto
+    }
+
+    /** Shared body for both [importAndConvert] and [importAndConvertCustom]:
+     * persists the pack/sticker rows, downloads and converts each selected
+     * sticker, builds the tray icon, and finalizes the pack -- the only
+     * difference between the two callers is which stickers were selected
+     * and how the title is suffixed. */
+    private suspend fun FlowCollector<PackOperationProgress>.convertAndPersistImportedPack(
+        packId: String,
+        serverUrl: String,
+        input: String,
+        shortNameInput: String,
+        setDto: StickerSetDto,
+        stickerDtos: List<StickerDto>,
+        titleSuffix: String,
+    ) {
+        val api = RetrofitProvider.apiFor(serverUrl)
         val now = System.currentTimeMillis()
         packDao.upsert(
             PackEntity(
@@ -146,7 +213,7 @@ class StickerPackRepository(private val appContext: Context) {
                 telegramSetName = setDto.name,
                 pushShortName = null,
                 sourceUrl = input,
-                title = setDto.title + partSuffix,
+                title = setDto.title + titleSuffix,
                 publisher = "@$shortNameInput",
                 stickerCount = stickerDtos.size,
                 isAnimatedPack = false,
@@ -219,7 +286,7 @@ class StickerPackRepository(private val appContext: Context) {
         if (downloadedFiles.isEmpty()) {
             finalizePackFailed(packId, "No stickers could be downloaded.")
             emit(PackOperationProgress.Failed("No stickers could be downloaded."))
-            return@flow
+            return
         }
 
         val packIsAnimated = PackConversionPlanner.classifyPackIsAnimated(sniffedTypes)
@@ -271,7 +338,7 @@ class StickerPackRepository(private val appContext: Context) {
         if (convertedCount == 0) {
             finalizePackFailed(packId, "No stickers could be converted.")
             emit(PackOperationProgress.Failed("No stickers could be converted."))
-            return@flow
+            return
         }
 
         emit(PackOperationProgress.Progress("Building tray icon", 0.9f))
@@ -287,10 +354,7 @@ class StickerPackRepository(private val appContext: Context) {
 
         emit(PackOperationProgress.Progress("Ready", 1f))
         emit(PackOperationProgress.Complete(packId))
-    }.catch { e ->
-        finalizePackFailed(packId, e.message ?: "Import failed.")
-        emit(PackOperationProgress.Failed(e.message ?: "Import failed."))
-    }.flowOn(Dispatchers.IO)
+    }
 
     // ---- Create (local media -> Telegram push and/or WhatsApp) ------------
 

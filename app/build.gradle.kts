@@ -62,6 +62,7 @@ dependencies {
     debugImplementation(libs.squareup.okhttp.logging.interceptor)
     implementation(libs.coil.compose)
     implementation(libs.coil.android)
+    implementation(libs.coil.network.okhttp)
     implementation(libs.airbnb.lottie)
     implementation(libs.aureusapps.webp.android)
     testImplementation(libs.junit)

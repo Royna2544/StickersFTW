@@ -11,8 +11,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -82,14 +80,6 @@ fun ConvertScreen(
         }
         item {
             CreatePackCard(onClick = onCreatePack)
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                text = "Import an existing Telegram pack and add it to WhatsApp, or build a new pack from photos/video and publish it to Telegram and WhatsApp. Conversion runs locally on the device.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
-            )
         }
     }
 }

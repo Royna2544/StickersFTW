@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.BuildConfig
 import com.royna.stickersftw.model.AppSettings
@@ -200,6 +201,15 @@ fun SettingsScreen(
                     text = "For The Win · For Telegram WhatsApp",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = "Import an existing Telegram pack and add it to WhatsApp, or build a " +
+                        "new pack from photos/video and publish it to Telegram and WhatsApp. " +
+                        "Conversion runs locally on the device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                    textAlign = TextAlign.Center,
                 )
             }
         }

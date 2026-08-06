@@ -11,6 +11,7 @@ import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.data.model.PackOperationProgress
 import com.royna.stickersftw.data.model.PreviewResult
+import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.InstalledAppsState
@@ -33,9 +34,11 @@ sealed class ImportPreviewUiState {
     data object Idle : ImportPreviewUiState()
     data object Loading : ImportPreviewUiState()
     data class Loaded(
+        val shortName: String,
         val title: String,
         val totalStickerCount: Int,
         val partCount: Int,
+        val stickers: List<PreviewSticker>,
         val emojis: List<String>,
         val warning: String?,
     ) : ImportPreviewUiState()
@@ -88,6 +91,16 @@ class AppViewModel(
 
     private val _botUsername = MutableStateFlow<String?>(null)
     val botUsername: StateFlow<String?> = _botUsername.asStateFlow()
+
+    /** Null means "no custom selection in progress" (the auto-split parts
+     * are used instead). Set by [beginCustomSelection] once the user taps
+     * "I want to pick my own", and cleared on every fresh [loadPreview]
+     * call since the pack's sticker order/contents could have changed
+     * server-side, which would make old selected ids stale or wrong. */
+    private val _customSelection = MutableStateFlow<Set<String>?>(null)
+    val customSelection: StateFlow<Set<String>?> = _customSelection.asStateFlow()
+
+    private var lastPreviewInput: String = ""
 
     private var operationJob: Job? = null
 
@@ -174,13 +187,20 @@ class AppViewModel(
     }
 
     fun loadPreview(input: String) {
+        lastPreviewInput = input
+        // The sticker order/contents could differ from any earlier preview
+        // of "the same" pack (edited server-side), so any previously picked
+        // custom selection is no longer trustworthy -- start clean.
+        _customSelection.value = null
         _importPreview.value = ImportPreviewUiState.Loading
         viewModelScope.launch {
             _importPreview.value = when (val result = packRepository.previewTelegramPack(settings.value.serverUrl, input)) {
                 is PreviewResult.Loaded -> ImportPreviewUiState.Loaded(
+                    shortName = result.preview.shortName,
                     title = result.preview.title,
                     totalStickerCount = result.preview.totalStickerCount,
                     partCount = result.preview.partCount,
+                    stickers = result.preview.stickers,
                     emojis = result.preview.emojis,
                     warning = result.preview.warning,
                 )
@@ -191,6 +211,39 @@ class AppViewModel(
 
     fun resetPreview() {
         _importPreview.value = ImportPreviewUiState.Idle
+        _customSelection.value = null
+    }
+
+    /** Enters custom-selection mode for the currently loaded preview, with
+     * everything selected by default. A no-op if already in that mode
+     * (e.g. returning to the picker screen shouldn't reset taps). */
+    fun beginCustomSelection() {
+        val preview = _importPreview.value as? ImportPreviewUiState.Loaded ?: return
+        if (_customSelection.value == null) {
+            _customSelection.value = preview.stickers.map { it.id }.toSet()
+        }
+    }
+
+    fun toggleCustomSticker(id: String) {
+        _customSelection.value = _customSelection.value?.let { current ->
+            if (id in current) current - id else current + id
+        }
+    }
+
+    fun setCustomSelectionAll(selected: Boolean) {
+        val preview = _importPreview.value as? ImportPreviewUiState.Loaded ?: return
+        _customSelection.value = if (selected) preview.stickers.map { it.id }.toSet() else emptySet()
+    }
+
+    /** Kicks off the real import for whatever is currently checked in the
+     * custom picker. */
+    fun startImportCustom(): String {
+        val selected = _customSelection.value ?: emptySet()
+        val packId = UUID.randomUUID().toString()
+        runOperation(packId) {
+            packRepository.importAndConvertCustom(packId, settings.value.serverUrl, lastPreviewInput, selected)
+        }
+        return packId
     }
 
     /** Generates a pack id, kicks off the real fetch-and-convert flow for

@@ -21,10 +21,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.royna.stickersftw.model.InstalledAppsState
+import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.ui.AppViewModel
+import com.royna.stickersftw.ui.ImportPreviewUiState
 import com.royna.stickersftw.ui.screens.ConversionScreen
 import com.royna.stickersftw.ui.screens.ConvertScreen
 import com.royna.stickersftw.ui.screens.CreatePackScreen
+import com.royna.stickersftw.ui.screens.CustomStickerPickerScreen
 import com.royna.stickersftw.ui.screens.ImportPackScreen
 import com.royna.stickersftw.ui.screens.MyPacksScreen
 import com.royna.stickersftw.ui.screens.PackDetailScreen
@@ -35,6 +38,7 @@ private object Routes {
     const val Packs = "packs"
     const val Settings = "settings"
     const val Import = "import"
+    const val ImportCustom = "import/custom"
     const val Create = "create"
     const val Detail = "pack/{packId}"
     const val Conversion = "conversion/{packId}"
@@ -82,6 +86,7 @@ fun StickersFtwApp(viewModel: AppViewModel) {
     val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
     val conversion by viewModel.conversion.collectAsStateWithLifecycle()
     val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
+    val customSelection by viewModel.customSelection.collectAsStateWithLifecycle()
     val botUsername by viewModel.botUsername.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -153,13 +158,34 @@ fun StickersFtwApp(viewModel: AppViewModel) {
             }
             composable(Routes.Import) {
                 ImportPackScreen(
-                    serverUrl = settings.serverUrl,
                     previewState = importPreview,
                     onLoadPreview = viewModel::loadPreview,
                     onResetPreview = viewModel::resetPreview,
                     onBack = { navController.popBackStack() },
                     onImport = { input, partIndex ->
                         val id = viewModel.startImport(input, partIndex)
+                        navController.navigate(Routes.conversion(id)) {
+                            popUpTo(Routes.Import) { inclusive = true }
+                        }
+                    },
+                    onPickCustom = {
+                        viewModel.beginCustomSelection()
+                        navController.navigate(Routes.ImportCustom)
+                    },
+                )
+            }
+            composable(Routes.ImportCustom) {
+                val loaded = importPreview as? ImportPreviewUiState.Loaded
+                CustomStickerPickerScreen(
+                    serverUrl = settings.serverUrl,
+                    shortName = loaded?.shortName.orEmpty(),
+                    stickers = loaded?.stickers.orEmpty(),
+                    selectedIds = customSelection.orEmpty(),
+                    onToggle = viewModel::toggleCustomSticker,
+                    onSetAll = viewModel::setCustomSelectionAll,
+                    onBack = { navController.popBackStack() },
+                    onDownload = {
+                        val id = viewModel.startImportCustom()
                         navController.navigate(Routes.conversion(id)) {
                             popUpTo(Routes.Import) { inclusive = true }
                         }
@@ -205,6 +231,12 @@ fun StickersFtwApp(viewModel: AppViewModel) {
             composable(Routes.Conversion) { entry ->
                 val id = entry.arguments?.getString("packId")
                 val pack = packs.firstOrNull { it.id == id }
+                val loadedPreview = importPreview as? ImportPreviewUiState.Loaded
+                // Only offer to convert other parts for a fetch-side import
+                // (not a Create-pack publish, which reuses this same screen)
+                // of a pack that was actually split into more than one part.
+                val showConvertOtherParts = pack?.origin == PackOrigin.Imported &&
+                    (loadedPreview?.partCount ?: 1) > 1
                 ConversionScreen(
                     pack = pack,
                     state = conversion,
@@ -220,6 +252,8 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                         pack?.let { viewModel.addToWhatsappIntent(it.id, it.title, useBusinessWhatsapp) }
                     },
                     onWhatsappResult = { pack?.let { viewModel.refreshWhatsappAdded(it.id) } },
+                    showConvertOtherParts = showConvertOtherParts,
+                    onConvertOtherParts = { navController.navigate(Routes.Import) },
                 )
             }
         }

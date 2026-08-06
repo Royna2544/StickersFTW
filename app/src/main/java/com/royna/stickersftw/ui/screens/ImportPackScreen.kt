@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,12 +41,12 @@ import com.royna.stickersftw.ui.ImportPreviewUiState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImportPackScreen(
-    serverUrl: String,
     previewState: ImportPreviewUiState,
     onLoadPreview: (String) -> Unit,
     onResetPreview: () -> Unit,
     onBack: () -> Unit,
     onImport: (String, Int) -> Unit,
+    onPickCustom: () -> Unit,
 ) {
     var value by rememberSaveable { mutableStateOf("") }
     val normalized = value.trim()
@@ -83,9 +84,8 @@ fun ImportPackScreen(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Telegram pack") },
-                placeholder = { Text("https://t.me/addstickers/roynas_alice_pack") },
+                placeholder = { Text("https://t.me/addstickers/UtyaDuck") },
                 leadingIcon = { Icon(Icons.Rounded.ContentPaste, contentDescription = null) },
-                supportingText = { Text("Server: $serverUrl") },
                 singleLine = true,
             )
             Button(
@@ -182,6 +182,12 @@ fun ImportPackScreen(
                                         Text("  Import Part ${part + 1} of ${previewState.partCount}")
                                     }
                                 }
+                            }
+                            TextButton(
+                                onClick = onPickCustom,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text("I want to pick my own")
                             }
                         }
                     }

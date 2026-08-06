@@ -47,6 +47,8 @@ fun ConversionScreen(
     onOpenPacks: () -> Unit,
     onBuildWhatsappIntent: () -> Intent?,
     onWhatsappResult: () -> Unit,
+    showConvertOtherParts: Boolean = false,
+    onConvertOtherParts: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -170,6 +172,15 @@ fun ConversionScreen(
                         onResult = onWhatsappResult,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (showConvertOtherParts) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = onConvertOtherParts,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Convert other parts of pack")
+                        }
+                    }
                     Spacer(Modifier.height(12.dp))
                     OutlinedButton(
                         onClick = onOpenPacks,

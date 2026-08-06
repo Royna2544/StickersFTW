@@ -3,6 +3,7 @@ package com.royna.stickersftw.ui.components
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -161,7 +162,13 @@ private fun TelegramClientInfo?.detailLabel(): String = when (this?.kind) {
     null -> "Not installed"
     TelegramClientKind.Official -> "Installed"
     TelegramClientKind.OfficialAlt -> displayName
-    TelegramClientKind.ThirdParty -> "$displayName (Third-party)"
+    TelegramClientKind.ThirdParty -> displayName
+}
+
+private fun TelegramClientInfo?.statusLabel(): String = when (this?.kind) {
+    null -> "—"
+    TelegramClientKind.Official, TelegramClientKind.OfficialAlt -> "OK"
+    TelegramClientKind.ThirdParty -> "Third-party"
 }
 
 @Composable
@@ -177,10 +184,10 @@ fun ServiceStatusPanel(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         StatusRow(
             icon = Icons.Rounded.Cloud,
-            dotColor = PositiveGreen,
             title = "Server",
             detail = serverUrl.removePrefix("http://").removePrefix("https://"),
             status = "Ready",
@@ -189,16 +196,14 @@ fun ServiceStatusPanel(
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
         StatusRow(
             icon = Icons.AutoMirrored.Rounded.Send,
-            dotColor = TelegramBlue,
             title = "Telegram",
             detail = telegramClient.detailLabel(),
-            status = if (telegramClient != null) "OK" else "—",
+            status = telegramClient.statusLabel(),
             statusColor = if (telegramClient != null) TelegramBlue else MaterialTheme.colorScheme.outline,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
         StatusRow(
             icon = Icons.Rounded.Workspaces,
-            dotColor = if (whatsappInstalled) WhatsAppGreen else MaterialTheme.colorScheme.outline,
             title = "WhatsApp",
             detail = if (whatsappInstalled) "Installed" else "Not installed",
             status = if (whatsappInstalled) "OK" else "—",
@@ -210,7 +215,6 @@ fun ServiceStatusPanel(
 @Composable
 private fun StatusRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
-    dotColor: Color,
     title: String,
     detail: String,
     status: String,
@@ -222,12 +226,6 @@ private fun StatusRow(
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(12.dp)
-                .background(dotColor, CircleShape),
-        )
-        Spacer(Modifier.width(14.dp))
         Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
         Text(
