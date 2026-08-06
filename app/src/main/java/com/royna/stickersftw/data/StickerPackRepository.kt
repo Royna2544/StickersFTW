@@ -453,6 +453,7 @@ class StickerPackRepository(private val appContext: Context) {
         var staticCount = 0
         var firstConvertedFile: File? = null
         var firstConvertedType: StickerMediaType? = null
+        val convertedForFixup = mutableListOf<WhatsappConvertedSticker>()
 
         for ((index, item) in downloadedFiles.withIndex()) {
             val (remoteId, file, type) = item
@@ -469,6 +470,7 @@ class StickerPackRepository(private val appContext: Context) {
                 is StickerConvertResult.Success -> {
                     convertedCount++
                     if (result.isAnimated) animatedCount++ else staticCount++
+                    convertedForFixup.add(WhatsappConvertedSticker(file, type, outputFile, result.isAnimated))
                     if (firstConvertedFile == null) {
                         firstConvertedFile = file
                         firstConvertedType = type
@@ -491,6 +493,7 @@ class StickerPackRepository(private val appContext: Context) {
         // Derived from what conversion actually produced, not from the
         // source's nominal format -- see StickerConversionPipeline.
         val packIsAnimated = animatedCount >= staticCount && animatedCount > 0
+        reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated)
 
         if (convertedCount == 0) {
             val message = appContext.getString(R.string.err_no_stickers_converted)
@@ -612,6 +615,7 @@ class StickerPackRepository(private val appContext: Context) {
         var staticCount = 0
         var firstConvertedFile: File? = null
         var firstConvertedType: StickerMediaType? = null
+        val convertedForFixup = mutableListOf<WhatsappConvertedSticker>()
 
         if (addToWhatsapp) {
             for ((index, entry) in localFiles.withIndex()) {
@@ -630,6 +634,7 @@ class StickerPackRepository(private val appContext: Context) {
                     is StickerConvertResult.Success -> {
                         whatsappConvertedCount++
                         if (result.isAnimated) animatedCount++ else staticCount++
+                        convertedForFixup.add(WhatsappConvertedSticker(file, type, output, result.isAnimated))
                         if (firstConvertedFile == null) {
                             firstConvertedFile = file
                             firstConvertedType = type
@@ -655,6 +660,7 @@ class StickerPackRepository(private val appContext: Context) {
                 localFiles.map { (sticker, _) -> if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static },
             )
         }
+        reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated)
 
         var telegramPushedFullName: String? = pack.telegramSetName
         var telegramPushWarning: String? = null
@@ -890,6 +896,37 @@ class StickerPackRepository(private val appContext: Context) {
 
     private fun sanitizeFileName(raw: String): String =
         raw.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifBlank { "sticker" }
+
+    private data class WhatsappConvertedSticker(
+        val file: File,
+        val type: StickerMediaType,
+        val output: File,
+        val isAnimated: Boolean,
+    )
+
+    /** WhatsApp's own validator rejects a whole pack if even one sticker's
+     * WebP frame count disagrees with the pack-level animated/static flag
+     * (see StickerPackValidator.validateStickerFile upstream) -- the flag
+     * itself is decided from a majority vote across all stickers, so any
+     * minority outlier (e.g. one video sticker whose device-side frame
+     * extraction only found a single real frame, or a plain static image
+     * mixed into an otherwise-animated Telegram set) must be re-encoded to
+     * match, not left as the vote's actual per-sticker result. */
+    private suspend fun reconcileWhatsappAnimatedMismatches(
+        stickers: List<WhatsappConvertedSticker>,
+        packIsAnimated: Boolean,
+    ) {
+        for (sticker in stickers) {
+            if (sticker.isAnimated == packIsAnimated) continue
+            StickerConversionPipeline.convertForWhatsappForced(
+                appContext,
+                sticker.file,
+                sticker.output,
+                sticker.type,
+                forceAnimated = packIsAnimated,
+            )
+        }
+    }
 
     companion object {
         /** Sentinel [PackEntity.importPartIndex] for a hand-picked custom

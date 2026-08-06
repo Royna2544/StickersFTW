@@ -43,6 +43,43 @@ object StickerConversionPipeline {
         return outcome.toResult(output, isAnimated)
     }
 
+    /** Re-converts one sticker to match a pack-wide animated/static decision
+     * made *after* seeing every sticker's own outcome (see the caller in
+     * StickerPackRepository). WhatsApp's validator is all-or-nothing per
+     * pack: if the pack is declared animated, every single sticker's WebP
+     * must have more than one frame, and vice versa -- a pack with even one
+     * mismatched sticker is rejected outright, not just that sticker. When
+     * [forceAnimated] doesn't match what extraction actually produced, this
+     * pads a single frame into a minimal 2-frame loop (animated pack, only
+     * 1 real frame available) or drops to just the first frame (static
+     * pack, source was genuinely multi-frame). */
+    suspend fun convertForWhatsappForced(
+        context: Context,
+        input: File,
+        output: File,
+        stickerType: StickerMediaType,
+        forceAnimated: Boolean,
+    ): StickerConvertResult {
+        output.parentFile?.mkdirs()
+
+        val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX)
+            ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
+
+        val outcome = if (forceAnimated) {
+            val animatedFrames = if (frames.size > 1) {
+                frames
+            } else {
+                val only = frames.first()
+                listOf(only, only.copy(timestampMs = only.timestampMs + 100L))
+            }
+            WebpAnimationEncoder.encode(context, animatedFrames, SizeBudget.STICKER_PX, output, SizeBudget.ANIMATED_MAX_BYTES)
+        } else {
+            StaticStickerConverter.compressWithBudget(frames.first().bitmap, output, SizeBudget.STATIC_MAX_BYTES)
+        }
+
+        return outcome.toResult(output, forceAnimated)
+    }
+
     suspend fun buildTrayIcon(
         input: File,
         stickerType: StickerMediaType,
