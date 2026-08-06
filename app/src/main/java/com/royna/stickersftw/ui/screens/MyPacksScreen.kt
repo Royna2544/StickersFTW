@@ -12,11 +12,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,12 +30,17 @@ import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.PackListCard
 import com.royna.stickersftw.ui.components.PageHeader
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyPacksScreen(
     packs: List<StickerPack>,
     onOpenPack: (String) -> Unit,
     onTogglePinned: (String) -> Unit,
     onDeletePack: (String) -> Unit,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onRequestUpdate: (String) -> Unit,
+    onDisableUpdates: (String) -> Unit,
     contentPadding: PaddingValues,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
@@ -71,7 +78,9 @@ fun MyPacksScreen(
             ),
         )
         Spacer(Modifier.height(14.dp))
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
             // weight(1f), not fillMaxSize(): this Column isn't scrollable
             // itself, so an unweighted fillMaxSize() child would claim the
             // *entire* column height on top of the header/search already
@@ -80,16 +89,22 @@ fun MyPacksScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
-            contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(filteredPacks, key = { it.id }) { pack ->
-                PackListCard(
-                    pack = pack,
-                    onClick = { onOpenPack(pack.id) },
-                    onTogglePinned = { onTogglePinned(pack.id) },
-                    onDelete = { onDeletePack(pack.id) },
-                )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(filteredPacks, key = { it.id }) { pack ->
+                    PackListCard(
+                        pack = pack,
+                        onClick = { onOpenPack(pack.id) },
+                        onTogglePinned = { onTogglePinned(pack.id) },
+                        onDelete = { onDeletePack(pack.id) },
+                        onRequestUpdate = { onRequestUpdate(pack.id) },
+                        onDisableUpdates = { onDisableUpdates(pack.id) },
+                    )
+                }
             }
         }
     }

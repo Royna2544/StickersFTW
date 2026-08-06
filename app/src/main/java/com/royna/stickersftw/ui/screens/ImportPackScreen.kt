@@ -1,5 +1,6 @@
 package com.royna.stickersftw.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.ui.ImportPreviewUiState
 
@@ -47,9 +49,21 @@ fun ImportPackScreen(
     onBack: () -> Unit,
     onImport: (String, Int) -> Unit,
     onPickCustom: () -> Unit,
+    initialInput: String = "",
 ) {
-    var value by rememberSaveable { mutableStateOf("") }
+    var value by rememberSaveable { mutableStateOf(initialInput) }
     val normalized = value.trim()
+    val context = LocalContext.current
+    // Blank input must never reach onImport -- it would navigate to the
+    // conversion screen just to show a "no link entered" failure, when it
+    // should instead be a no-op toast that keeps the user on this screen.
+    val attemptImport: (Int) -> Unit = { part ->
+        if (normalized.isBlank()) {
+            Toast.makeText(context, "Enter a Telegram sticker pack link or short name.", Toast.LENGTH_SHORT).show()
+        } else {
+            onImport(normalized, part)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -162,7 +176,7 @@ fun ImportPackScreen(
                             Spacer(Modifier.height(2.dp))
                             if (previewState.partCount <= 1) {
                                 Button(
-                                    onClick = { onImport(normalized, 0) },
+                                    onClick = { attemptImport(0) },
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Icon(Icons.Rounded.Download, contentDescription = null)
@@ -175,7 +189,7 @@ fun ImportPackScreen(
                                 )
                                 for (part in 0 until previewState.partCount) {
                                     Button(
-                                        onClick = { onImport(normalized, part) },
+                                        onClick = { attemptImport(part) },
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         Icon(Icons.Rounded.Download, contentDescription = null)

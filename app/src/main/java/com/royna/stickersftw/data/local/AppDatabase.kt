@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 1, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -20,7 +20,11 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "stickers_ftw.db",
-                ).build().also { instance = it }
+                )
+                    // Pre-release app, no real user data to preserve across this
+                    // schema bump -- a real Migration isn't worth writing yet.
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build().also { instance = it }
             }
     }
 }

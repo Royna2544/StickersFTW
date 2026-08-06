@@ -45,4 +45,22 @@ interface PackDao {
 
     @Query("DELETE FROM packs WHERE id = :id")
     suspend fun delete(id: String)
+
+    @Query(
+        "SELECT * FROM packs WHERE origin = 'Imported' AND status = 'Ready' AND updateCheckEnabled = 1",
+    )
+    suspend fun getUpdateCheckCandidates(): List<PackEntity>
+
+    @Query("UPDATE packs SET updateAvailable = :available WHERE id = :id")
+    suspend fun setUpdateAvailable(id: String, available: Boolean)
+
+    @Query(
+        "UPDATE packs SET updateCheckEnabled = :enabled, updateAvailable = CASE WHEN :enabled THEN updateAvailable ELSE 0 END WHERE id = :id",
+    )
+    suspend fun setUpdateCheckEnabled(id: String, enabled: Boolean)
+
+    @Query(
+        "UPDATE packs SET updateAvailable = 0, sourceSignature = :signature, importPartIndex = :partIndex, updatedAtMillis = :now WHERE id = :id",
+    )
+    suspend fun applyUpdateBaseline(id: String, signature: String, partIndex: Int, now: Long)
 }

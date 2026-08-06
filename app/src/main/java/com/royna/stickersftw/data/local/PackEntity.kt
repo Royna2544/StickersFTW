@@ -28,4 +28,13 @@ data class PackEntity(
     val whatsappAdded: Boolean,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
+    /** Signature of the *full* upstream Telegram set (title + every sticker's
+     * id:emoji) at the time of the last import/update -- null/unused for
+     * Created packs. Compared against a fresh fetch to detect drift. */
+    val sourceSignature: String? = null,
+    val updateAvailable: Boolean = false,
+    val updateCheckEnabled: Boolean = true,
+    /** Part index used at import time; replayed verbatim when the user
+     * chooses to update (always 0 for a custom or single-part import). */
+    val importPartIndex: Int = 0,
 )

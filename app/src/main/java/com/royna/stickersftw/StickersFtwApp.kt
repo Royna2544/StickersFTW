@@ -137,11 +137,19 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                 )
             }
             composable(Routes.Packs) {
+                val isRefreshingPacks by viewModel.isRefreshingPacks.collectAsStateWithLifecycle()
                 MyPacksScreen(
                     packs = packs,
                     onOpenPack = { navController.navigate(Routes.detail(it)) },
                     onTogglePinned = viewModel::togglePinned,
                     onDeletePack = viewModel::deletePack,
+                    isRefreshing = isRefreshingPacks,
+                    onRefresh = viewModel::refreshMyPacks,
+                    onRequestUpdate = { packId ->
+                        viewModel.requestPackUpdate(packId)
+                        navController.navigate(Routes.conversion(packId))
+                    },
+                    onDisableUpdates = viewModel::disableUpdatesForPack,
                     contentPadding = scaffoldPadding,
                 )
             }
@@ -153,6 +161,7 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     onSetServerUrl = viewModel::setServerUrl,
                     onSetThemeMode = viewModel::setThemeMode,
                     onSetTelegramUserId = viewModel::setTelegramUserId,
+                    onSetUpdateChecksEnabled = viewModel::setUpdateChecksEnabled,
                     contentPadding = scaffoldPadding,
                 )
             }
@@ -172,6 +181,7 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                         viewModel.beginCustomSelection()
                         navController.navigate(Routes.ImportCustom)
                     },
+                    initialInput = viewModel.lastPreviewInput,
                 )
             }
             composable(Routes.ImportCustom) {

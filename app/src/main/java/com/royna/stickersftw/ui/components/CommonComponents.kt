@@ -40,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,7 @@ import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramClientInfo
 import com.royna.stickersftw.model.TelegramClientKind
 import com.royna.stickersftw.ui.theme.PositiveGreen
+import com.royna.stickersftw.ui.theme.UpdateAvailableYellow
 import com.royna.stickersftw.ui.theme.TelegramBlue
 import com.royna.stickersftw.ui.theme.WhatsAppGreen
 import java.io.File
@@ -386,12 +388,16 @@ fun PackListCard(
     onClick: () -> Unit,
     onTogglePinned: () -> Unit,
     onDelete: () -> Unit,
+    onRequestUpdate: () -> Unit = {},
+    onDisableUpdates: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
 
+    Box(modifier = modifier.fillMaxWidth()) {
     Card(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(25.dp),
@@ -486,6 +492,60 @@ fun PackListCard(
             }
         }
     }
+
+        if (pack.updateAvailable) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp)
+                    .size(14.dp)
+                    .background(UpdateAvailableYellow, CircleShape)
+                    .clickable(onClick = { showUpdateDialog = true }),
+            )
+        }
+    }
+
+    if (showUpdateDialog) {
+        PackUpdateDialog(
+            packTitle = pack.title,
+            onUpdate = {
+                showUpdateDialog = false
+                onRequestUpdate()
+            },
+            onNotYet = { showUpdateDialog = false },
+            onDisable = {
+                showUpdateDialog = false
+                onDisableUpdates()
+            },
+            onDismiss = { showUpdateDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun PackUpdateDialog(
+    packTitle: String,
+    onUpdate: () -> Unit,
+    onNotYet: () -> Unit,
+    onDisable: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Update available") },
+        text = {
+            Text("\"$packTitle\" has changed on Telegram since it was imported. Update it now? This will re-import it and clear any custom sticker selection.")
+        },
+        confirmButton = {
+            Button(onClick = onUpdate) { Text("Update") }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDisable) { Text("Disable updates") }
+                TextButton(onClick = onNotYet) { Text("Not yet") }
+            }
+        },
+    )
 }
 
 @Composable

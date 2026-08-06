@@ -90,8 +90,8 @@ class StickerPackRepository(private val appContext: Context) {
                         stickers = dto.stickers.map { PreviewSticker(it.id, it.emoji) },
                         emojis = dto.stickers.mapNotNull { it.emoji }.distinct().take(8),
                         warning = if (partRanges.size > 1) {
-                            "This pack has ${dto.stickers.size} stickers. WhatsApp and Telegram packs " +
-                                "are capped at 30, so it'll be split into ${partRanges.size} parts."
+                            "This pack has ${dto.stickers.size} stickers. WhatsApp packs are capped " +
+                                "at 30, so it'll be split into ${partRanges.size} parts."
                         } else {
                             null
                         },
@@ -124,11 +124,75 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, titleSuffix)
+        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
     }.catch { e ->
         finalizePackFailed(packId, e.message ?: "Import failed.")
         emit(PackOperationProgress.Failed(e.message ?: "Import failed."))
     }.flowOn(Dispatchers.IO)
+
+    /** Re-fetches an already-imported pack's Telegram source and re-slices it
+     * from scratch using the same part index it was originally imported
+     * with (always 0 for a custom or single-part import) -- this is what
+     * "Update" means: not a merge/reconciliation, a fresh re-import under
+     * the same pack id. */
+    fun applyPackUpdate(packId: String, serverUrl: String): Flow<PackOperationProgress> = flow {
+        val pack = packDao.getPack(packId) ?: run {
+            emit(PackOperationProgress.Failed("Pack not found."))
+            return@flow
+        }
+        val setName = pack.telegramSetName ?: run {
+            emit(PackOperationProgress.Failed("This pack has no linked Telegram source."))
+            return@flow
+        }
+        val input = pack.sourceUrl ?: setName
+        val fetched = fetchStickerSet(serverUrl, input) ?: return@flow
+        val (shortNameInput, setDto) = fetched
+
+        val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
+        if (countResult is PlannerResult.Rejected) {
+            emit(PackOperationProgress.Failed(countResult.reason))
+            return@flow
+        }
+
+        val partRanges = PackConversionPlanner.computePartRanges(setDto.stickers.size)
+        val partIndex = pack.importPartIndex.coerceIn(partRanges.indices)
+        val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
+        val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
+
+        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
+    }.catch { e ->
+        finalizePackFailed(packId, e.message ?: "Update failed.")
+        emit(PackOperationProgress.Failed(e.message ?: "Update failed."))
+    }.flowOn(Dispatchers.IO)
+
+    /** Re-fetches every eligible imported pack's Telegram source and flags
+     * [PackEntity.updateAvailable] when it has drifted from the signature
+     * captured at the last import/update. Drives My Packs' pull-to-refresh;
+     * a single pack's network failure is swallowed so it doesn't block the
+     * rest of the sweep. */
+    suspend fun checkForUpdates(serverUrl: String) {
+        val candidates = packDao.getUpdateCheckCandidates()
+        if (candidates.isEmpty()) return
+        val api = RetrofitProvider.apiFor(serverUrl)
+        for (pack in candidates) {
+            val setName = pack.telegramSetName ?: continue
+            val response = try {
+                withRateLimitRetry { api.getSet(setName) }
+            } catch (_: Exception) {
+                continue
+            }
+            if (!response.isSuccessful) continue
+            val dto = response.body() ?: continue
+            val freshSignature = SourceSignature.compute(dto)
+            if (pack.sourceSignature != null && freshSignature != pack.sourceSignature) {
+                packDao.setUpdateAvailable(pack.id, true)
+            }
+        }
+    }
+
+    suspend fun setUpdateCheckEnabled(packId: String, enabled: Boolean) {
+        packDao.setUpdateCheckEnabled(packId, enabled)
+    }
 
     /** Imports an arbitrary, hand-picked subset of the source pack's
      * stickers (order preserved) instead of a contiguous part -- backs the
@@ -203,9 +267,21 @@ class StickerPackRepository(private val appContext: Context) {
         setDto: StickerSetDto,
         stickerDtos: List<StickerDto>,
         titleSuffix: String,
+        partIndex: Int = 0,
     ) {
         val api = RetrofitProvider.apiFor(serverUrl)
         val now = System.currentTimeMillis()
+        // If this packId already exists, we're re-running an update: wipe the
+        // previous slice's rows and files before laying down the fresh one,
+        // and preserve user state (pin/whatsapp) that has nothing to do with
+        // the pack's content.
+        val existing = packDao.getPack(packId)
+        val packDirForWipe = File(appContext.filesDir, "packs/$packId")
+        if (existing != null) {
+            stickerDao.deleteForPack(packId)
+            File(packDirForWipe, "original").deleteRecursively()
+            File(packDirForWipe, "converted").deleteRecursively()
+        }
         packDao.upsert(
             PackEntity(
                 id = packId,
@@ -220,11 +296,15 @@ class StickerPackRepository(private val appContext: Context) {
                 status = PackStatus.Downloading.name,
                 errorMessage = null,
                 warningMessage = null,
-                trayIconPath = null,
-                isPinned = false,
-                whatsappAdded = false,
-                createdAtMillis = now,
+                trayIconPath = existing?.trayIconPath,
+                isPinned = existing?.isPinned ?: false,
+                whatsappAdded = existing?.whatsappAdded ?: false,
+                createdAtMillis = existing?.createdAtMillis ?: now,
                 updatedAtMillis = now,
+                sourceSignature = SourceSignature.compute(setDto),
+                updateAvailable = false,
+                updateCheckEnabled = existing?.updateCheckEnabled ?: true,
+                importPartIndex = partIndex,
             ),
         )
         stickerDao.upsertAll(
@@ -633,6 +713,7 @@ class StickerPackRepository(private val appContext: Context) {
             telegramPushState = pack.telegramSetName
                 ?.let { TelegramPushState.Pushed(it) }
                 ?: TelegramPushState.NotPushed,
+            updateAvailable = pack.updateAvailable,
         )
     }
 

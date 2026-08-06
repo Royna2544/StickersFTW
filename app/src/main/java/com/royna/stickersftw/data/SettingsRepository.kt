@@ -1,6 +1,7 @@
 package com.royna.stickersftw.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -20,6 +21,7 @@ class SettingsRepository(
         val ServerUrl = stringPreferencesKey("server_url")
         val ThemeMode = stringPreferencesKey("theme_mode")
         val TelegramUserId = stringPreferencesKey("telegram_user_id")
+        val UpdateChecksEnabled = booleanPreferencesKey("update_checks_enabled")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data
@@ -37,6 +39,7 @@ class SettingsRepository(
                     ?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } }
                     ?: ThemeMode.System,
                 telegramUserId = preferences[Keys.TelegramUserId] ?: "",
+                updateChecksEnabled = preferences[Keys.UpdateChecksEnabled] ?: true,
             )
         }
 
@@ -55,6 +58,12 @@ class SettingsRepository(
     suspend fun setTelegramUserId(userId: String) {
         context.settingsDataStore.edit { preferences ->
             preferences[Keys.TelegramUserId] = userId.trim().filter { it.isDigit() }
+        }
+    }
+
+    suspend fun setUpdateChecksEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[Keys.UpdateChecksEnabled] = enabled
         }
     }
 }

@@ -92,6 +92,9 @@ class AppViewModel(
     private val _botUsername = MutableStateFlow<String?>(null)
     val botUsername: StateFlow<String?> = _botUsername.asStateFlow()
 
+    private val _isRefreshingPacks = MutableStateFlow(false)
+    val isRefreshingPacks: StateFlow<Boolean> = _isRefreshingPacks.asStateFlow()
+
     /** Null means "no custom selection in progress" (the auto-split parts
      * are used instead). Set by [beginCustomSelection] once the user taps
      * "I want to pick my own", and cleared on every fresh [loadPreview]
@@ -100,7 +103,12 @@ class AppViewModel(
     private val _customSelection = MutableStateFlow<Set<String>?>(null)
     val customSelection: StateFlow<Set<String>?> = _customSelection.asStateFlow()
 
-    private var lastPreviewInput: String = ""
+    /** The Telegram pack link/short-name last submitted to [loadPreview] --
+     * exposed so the Import screen can re-populate its text field when
+     * returning to it (e.g. via "Convert other parts of pack") instead of
+     * showing a blank field under a still-loaded preview. */
+    var lastPreviewInput: String = ""
+        private set
 
     private var operationJob: Job? = null
 
@@ -162,6 +170,10 @@ class AppViewModel(
 
     fun setTelegramUserId(userId: String) {
         viewModelScope.launch { settingsRepository.setTelegramUserId(userId) }
+    }
+
+    fun setUpdateChecksEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setUpdateChecksEnabled(enabled) }
     }
 
     /** Best-effort lookup so Settings can show "message @bot_username" --
@@ -273,6 +285,39 @@ class AppViewModel(
                 settings.value.telegramUserId,
             )
         }
+    }
+
+    /** Pull-to-refresh on My Packs: re-checks every eligible imported pack
+     * against Telegram and flags any that drifted. A no-op (but still
+     * settles the spinner) when the user has turned off pack updates in
+     * Settings, or while a check is already in flight. */
+    fun refreshMyPacks() {
+        if (_isRefreshingPacks.value) return
+        if (!settings.value.updateChecksEnabled) return
+        viewModelScope.launch {
+            _isRefreshingPacks.value = true
+            try {
+                packRepository.checkForUpdates(settings.value.serverUrl)
+            } catch (_: Exception) {
+                // Swallowed -- a failed sweep just means no dots update this
+                // time; the user can pull to refresh again.
+            } finally {
+                _isRefreshingPacks.value = false
+            }
+        }
+    }
+
+    /** "Update" on the yellow-dot prompt: re-imports the pack from scratch
+     * under the same pack id, discarding any custom selection -- defensively
+     * clears leftover import-preview/custom-selection state first, since
+     * this reuses the same conversion flow/progress UI as a fresh import. */
+    fun requestPackUpdate(packId: String) {
+        resetPreview()
+        runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.serverUrl) }
+    }
+
+    fun disableUpdatesForPack(packId: String) {
+        viewModelScope.launch { packRepository.setUpdateCheckEnabled(packId, false) }
     }
 
     fun refreshWhatsappAdded(packId: String) {

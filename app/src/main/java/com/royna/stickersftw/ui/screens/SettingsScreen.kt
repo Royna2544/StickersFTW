@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,6 +57,7 @@ fun SettingsScreen(
     onSetServerUrl: (String) -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetTelegramUserId: (String) -> Unit,
+    onSetUpdateChecksEnabled: (Boolean) -> Unit,
     contentPadding: PaddingValues,
 ) {
     var editingServer by remember { mutableStateOf(false) }
@@ -156,6 +158,36 @@ fun SettingsScreen(
                 ) {
                     Text("Save")
                 }
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+        Text(
+            text = "PACK UPDATES",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(25.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Check imported packs for updates when refreshing My Packs",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
+                Switch(
+                    checked = settings.updateChecksEnabled,
+                    onCheckedChange = onSetUpdateChecksEnabled,
+                )
             }
         }
 

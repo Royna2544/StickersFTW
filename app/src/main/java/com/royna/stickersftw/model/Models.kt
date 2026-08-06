@@ -10,6 +10,7 @@ data class AppSettings(
     val serverUrl: String = "http://10.0.2.2:8080",
     val themeMode: ThemeMode = ThemeMode.System,
     val telegramUserId: String = "",
+    val updateChecksEnabled: Boolean = true,
 )
 
 enum class TelegramClientKind {
@@ -75,6 +76,7 @@ data class StickerPack(
     val previewEmojis: List<String> = emptyList(),
     val whatsappAdded: Boolean? = null,
     val telegramPushState: TelegramPushState = TelegramPushState.NotPushed,
+    val updateAvailable: Boolean = false,
 )
 
 /** Shared progress shape for both the fetch-and-convert flow
