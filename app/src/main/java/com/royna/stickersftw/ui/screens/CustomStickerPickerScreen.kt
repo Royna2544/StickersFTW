@@ -39,8 +39,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
+import com.royna.stickersftw.R
 import com.royna.stickersftw.conversion.SizeBudget
 import com.royna.stickersftw.data.model.PreviewSticker
 
@@ -64,15 +66,15 @@ fun CustomStickerPickerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Pick stickers") },
+                title = { Text(stringResource(R.string.custom_picker_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
                 actions = {
                     TextButton(onClick = { onSetAll(!allSelected) }) {
-                        Text(if (allSelected) "Deselect all" else "Select all")
+                        Text(stringResource(if (allSelected) R.string.action_deselect_all else R.string.action_select_all))
                     }
                 },
             )
@@ -95,7 +97,7 @@ fun CustomStickerPickerScreen(
                         enabled = selectedIds.size in SizeBudget.MIN_STICKERS..SizeBudget.MAX_STICKERS,
                     ) {
                         Icon(Icons.Rounded.Download, contentDescription = null)
-                        Text("  Download")
+                        Text(stringResource(R.string.action_download))
                     }
                 }
             }
@@ -145,7 +147,7 @@ fun CustomStickerPickerScreen(
                     }
                     Icon(
                         imageVector = if (isSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                        contentDescription = if (isSelected) "Selected" else "Not selected",
+                        contentDescription = stringResource(if (isSelected) R.string.cd_selected else R.string.cd_not_selected),
                         tint = if (isSelected) MaterialTheme.colorScheme.primary else Color.White,
                         modifier = Modifier
                             .align(Alignment.TopEnd)

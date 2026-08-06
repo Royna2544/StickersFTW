@@ -37,7 +37,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.royna.stickersftw.R
 import com.royna.stickersftw.ui.ImportPreviewUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,12 +57,13 @@ fun ImportPackScreen(
     var value by rememberSaveable { mutableStateOf(initialInput) }
     val normalized = value.trim()
     val context = LocalContext.current
+    val enterPackLinkMessage = stringResource(R.string.err_enter_pack_link)
     // Blank input must never reach onImport -- it would navigate to the
     // conversion screen just to show a "no link entered" failure, when it
     // should instead be a no-op toast that keeps the user on this screen.
     val attemptImport: (Int) -> Unit = { part ->
         if (normalized.isBlank()) {
-            Toast.makeText(context, "Enter a Telegram sticker pack link or short name.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, enterPackLinkMessage, Toast.LENGTH_SHORT).show()
         } else {
             onImport(normalized, part)
         }
@@ -68,10 +72,10 @@ fun ImportPackScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Import Telegram Pack") },
+                title = { Text(stringResource(R.string.import_screen_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
             )
@@ -86,7 +90,7 @@ fun ImportPackScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
-                text = "Paste a Telegram sticker link or enter its short name.",
+                text = stringResource(R.string.import_instructions),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -97,8 +101,8 @@ fun ImportPackScreen(
                     onResetPreview()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Telegram pack") },
-                placeholder = { Text("https://t.me/addstickers/UtyaDuck") },
+                label = { Text(stringResource(R.string.import_field_label)) },
+                placeholder = { Text(stringResource(R.string.import_field_placeholder)) },
                 leadingIcon = { Icon(Icons.Rounded.ContentPaste, contentDescription = null) },
                 singleLine = true,
             )
@@ -107,7 +111,7 @@ fun ImportPackScreen(
                 enabled = normalized.isNotBlank() && previewState !is ImportPreviewUiState.Loading,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Load preview")
+                Text(stringResource(R.string.action_load_preview))
             }
 
             when (previewState) {
@@ -160,7 +164,11 @@ fun ImportPackScreen(
                                 style = MaterialTheme.typography.headlineMedium,
                             )
                             Text(
-                                text = "${previewState.totalStickerCount} stickers",
+                                text = pluralStringResource(
+                                    R.plurals.stickers_count,
+                                    previewState.totalStickerCount,
+                                    previewState.totalStickerCount,
+                                ),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             if (previewState.emojis.isNotEmpty()) {
@@ -180,11 +188,11 @@ fun ImportPackScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Icon(Icons.Rounded.Download, contentDescription = null)
-                                    Text("  Import and convert")
+                                    Text(stringResource(R.string.action_import_and_convert))
                                 }
                             } else {
                                 Text(
-                                    text = "Choose a part to import:",
+                                    text = stringResource(R.string.import_choose_part),
                                     style = MaterialTheme.typography.titleMedium,
                                 )
                                 for (part in 0 until previewState.partCount) {
@@ -193,7 +201,7 @@ fun ImportPackScreen(
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
                                         Icon(Icons.Rounded.Download, contentDescription = null)
-                                        Text("  Import Part ${part + 1} of ${previewState.partCount}")
+                                        Text(stringResource(R.string.action_import_part, part + 1, previewState.partCount))
                                     }
                                 }
                             }
@@ -201,7 +209,7 @@ fun ImportPackScreen(
                                 onClick = onPickCustom,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("I want to pick my own")
+                                Text(stringResource(R.string.action_pick_own))
                             }
                         }
                     }

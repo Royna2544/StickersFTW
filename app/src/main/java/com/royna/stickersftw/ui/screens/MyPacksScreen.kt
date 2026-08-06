@@ -25,7 +25,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.PackListCard
 import com.royna.stickersftw.ui.components.PageHeader
@@ -58,15 +61,15 @@ fun MyPacksScreen(
             .padding(horizontal = 22.dp),
     ) {
         PageHeader(
-            title = "My Packs",
-            subtitle = "${packs.size} sticker packs",
+            title = stringResource(R.string.my_packs_title),
+            subtitle = pluralStringResource(R.plurals.sticker_packs_count, packs.size, packs.size),
             modifier = Modifier.padding(top = 22.dp, bottom = 18.dp),
         )
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Search packs…") },
+            placeholder = { Text(stringResource(R.string.search_packs_placeholder)) },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             singleLine = true,
             shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),

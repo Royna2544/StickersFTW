@@ -1,4 +1,207 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Stickers FTW</string>
+
+    <!-- Shared -->
+    <string name="cd_back">Back</string>
+    <string name="app_tagline">For The Win · For Telegram WhatsApp</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_edit">Edit</string>
+    <string name="label_telegram">Telegram</string>
+    <string name="label_whatsapp">WhatsApp</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_convert">Convert</string>
+    <string name="nav_my_packs">My Packs</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Convert screen -->
+    <string name="convert_title">Stickers FTW</string>
+    <string name="section_pinned">Pinned</string>
+    <string name="action_see_all">See all</string>
+    <string name="import_pack_card_label">Import Pack</string>
+    <string name="create_pack_label">Create Pack</string>
+
+    <!-- Service status panel -->
+    <string name="status_server_title">Server</string>
+    <string name="status_server_ready">Ready</string>
+    <string name="status_telegram_title">Telegram</string>
+    <string name="status_whatsapp_title">WhatsApp</string>
+    <string name="status_not_installed">Not installed</string>
+    <string name="status_installed">Installed</string>
+    <string name="status_ok">OK</string>
+    <string name="status_third_party">Third-party</string>
+    <string name="status_dash">—</string>
+
+    <!-- Pack status chip -->
+    <string name="pack_status_building">Building</string>
+    <string name="pack_status_downloading">Downloading</string>
+    <string name="pack_status_converting">Converting</string>
+    <string name="pack_status_ready">Ready</string>
+    <string name="pack_status_failed">Failed</string>
+
+    <!-- My Packs screen -->
+    <string name="my_packs_title">My Packs</string>
+    <string name="search_packs_placeholder">Search packs…</string>
+    <string name="cd_pinned">Pinned</string>
+    <string name="cd_pack_menu">Pack menu</string>
+    <string name="action_pin">Pin</string>
+    <string name="action_unpin">Unpin</string>
+    <string name="action_delete">Delete</string>
+
+    <!-- Update dialog -->
+    <string name="update_dialog_title">Update available</string>
+    <string name="update_dialog_message">\"%1$s\" has changed on Telegram since it was imported. Update it now? This will re-import it and clear any custom sticker selection.</string>
+    <string name="action_update">Update</string>
+    <string name="action_disable_updates">Disable updates</string>
+    <string name="action_not_yet">Not yet</string>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_server_url">SERVER URL</string>
+    <string name="settings_section_telegram_push">TELEGRAM PUSH</string>
+    <string name="settings_telegram_push_body">To push a pack to Telegram, message %1$s and send /start, then paste your numeric user ID below (get it from @userinfobot).</string>
+    <string name="settings_telegram_push_bot_fallback">the bot configured on your server</string>
+    <string name="settings_telegram_user_id_label">Telegram user ID</string>
+    <string name="settings_section_pack_updates">PACK UPDATES</string>
+    <string name="settings_pack_updates_body">Check imported packs for updates when refreshing My Packs</string>
+    <string name="settings_section_theme">THEME</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="settings_version">Stickers FTW v%1$s</string>
+    <string name="settings_description">Import an existing Telegram pack and add it to WhatsApp, or build a new pack from photos/video and publish it to Telegram and WhatsApp. Conversion runs locally on the device.</string>
+    <string name="server_url_dialog_title">Server URL</string>
+    <string name="server_url_dialog_body">The Android app uses this endpoint to fetch Telegram sticker files.</string>
+    <string name="server_url_dialog_label">Base URL</string>
+    <string name="server_url_dialog_example">Example: http://10.0.2.2:8080</string>
+    <string name="server_url_dialog_hint_invalid">Include http:// or https://</string>
+
+    <!-- Import screen -->
+    <string name="import_screen_title">Import Telegram Pack</string>
+    <string name="import_instructions">Paste a Telegram sticker link or enter its short name.</string>
+    <string name="import_field_label">Telegram pack</string>
+    <string name="import_field_placeholder">https://t.me/addstickers/UtyaDuck</string>
+    <string name="action_load_preview">Load preview</string>
+    <string name="import_choose_part">Choose a part to import:</string>
+    <string name="action_import_and_convert">  Import and convert</string>
+    <string name="action_import_part">  Import Part %1$d of %2$d</string>
+    <string name="action_pick_own">I want to pick my own</string>
+
+    <!-- Conversion screen -->
+    <string name="conversion_title">Conversion</string>
+    <string name="conversion_error_title">Something went wrong</string>
+    <string name="conversion_ready_title">Pack ready</string>
+    <string name="conversion_ready_body">The converted pack is ready.</string>
+    <string name="conversion_working_on">Working on %1$s</string>
+    <string name="conversion_pack_label">Pack</string>
+    <string name="conversion_stickers_label">Stickers</string>
+    <string name="conversion_processing_label">Processing</string>
+    <string name="conversion_processing_value">On this device</string>
+    <string name="action_back">Back</string>
+    <string name="action_run_in_background">Run in background</string>
+    <string name="action_convert_other_parts">Convert other parts of pack</string>
+    <string name="action_open_my_packs">Open My Packs</string>
+
+    <!-- Add to WhatsApp button -->
+    <string name="action_add_to_whatsapp">  Add to WhatsApp</string>
+    <string name="whatsapp_not_installed">WhatsApp isn\'t installed on this device.</string>
+
+    <!-- Create pack screen -->
+    <string name="create_pack_instructions">Pick photos or short video clips, tag each with an emoji, and publish as a new pack.</string>
+    <string name="cd_video">Video</string>
+    <string name="create_pack_emoji_label">Emoji</string>
+    <string name="cd_remove">Remove</string>
+    <string name="create_pack_title_label">Pack title</string>
+    <string name="create_pack_short_name_label">Short name (for Telegram)</string>
+    <string name="create_pack_short_name_hint_valid">Letters, digits and underscores; must start with a letter.</string>
+    <string name="create_pack_short_name_hint_invalid">Must start with a letter and contain only letters, digits and underscores.</string>
+    <string name="create_pack_publish_to">Publish to</string>
+    <string name="action_create_and_publish">Create and publish</string>
+    <string name="create_pack_min_items_warning">Pick at least 3 items -- both Telegram and WhatsApp require a 3-sticker minimum.</string>
+
+    <!-- Pack detail screen -->
+    <string name="pack_detail_title_fallback">Pack</string>
+    <string name="cd_pin_pack">Pin pack</string>
+    <string name="pack_detail_not_found">Pack not found</string>
+    <string name="pack_detail_preview">Preview</string>
+    <string name="pack_detail_no_stickers">No converted stickers yet.</string>
+    <string name="action_push_to_telegram">  Push to Telegram</string>
+    <string name="action_delete_local_pack">  Delete local pack</string>
+    <string name="badge_added_to_whatsapp">Added to WhatsApp</string>
+    <string name="badge_on_telegram">On Telegram</string>
+    <string name="pack_detail_animated_suffix"> · animated</string>
+
+    <!-- Custom sticker picker screen -->
+    <string name="custom_picker_title">Pick stickers</string>
+    <string name="action_deselect_all">Deselect all</string>
+    <string name="action_select_all">Select all</string>
+    <string name="action_download">  Download</string>
+    <string name="cd_selected">Selected</string>
+    <string name="cd_not_selected">Not selected</string>
+
+    <!-- Repository / operation error and warning messages -->
+    <string name="err_enter_pack_link">Enter a Telegram sticker pack link or short name.</string>
+    <string name="err_empty_response">Empty response from server.</string>
+    <string name="err_could_not_reach_server">Could not reach the server. Check the server URL in Settings.</string>
+    <string name="warn_pack_split">This pack has %1$s. WhatsApp packs are capped at 30, so it\'ll be split into %2$s.</string>
+    <string name="err_invalid_part">Invalid pack part selected.</string>
+    <string name="err_no_stickers_downloaded">No stickers could be downloaded.</string>
+    <string name="err_no_stickers_converted">No stickers could be converted.</string>
+    <string name="err_select_at_least">Select at least %1$d stickers.</string>
+    <string name="err_select_at_most">Select at most %1$d stickers.</string>
+    <string name="err_import_failed">Import failed.</string>
+    <string name="err_update_failed">Update failed.</string>
+    <string name="err_no_linked_telegram_source">This pack has no linked Telegram source.</string>
+    <string name="err_pack_not_found">Pack not found.</string>
+    <string name="err_pack_no_stickers">This pack has no stickers.</string>
+    <string name="err_could_not_read_media">Could not read any of the picked media.</string>
+    <string name="err_could_not_read_sticker_media">Could not read picked media.</string>
+    <string name="err_missing_short_name">Missing pack short name.</string>
+    <string name="err_set_telegram_user_id">Set your Telegram user ID in Settings before pushing to Telegram.</string>
+    <string name="err_nothing_published">Nothing was published.</string>
+    <string name="err_publish_failed">Publish failed.</string>
+    <string name="err_download_failed">Download failed.</string>
+    <string name="err_unexpected">Unexpected error.</string>
+
+    <!-- Operation progress stage labels -->
+    <string name="stage_reading_metadata">Reading pack metadata</string>
+    <string name="stage_downloading_sticker">Downloading sticker %1$d/%2$d</string>
+    <string name="stage_converting_sticker">Converting sticker %1$d/%2$d</string>
+    <string name="stage_building_tray_icon">Building tray icon</string>
+    <string name="stage_preparing_media">Preparing media %1$d/%2$d</string>
+    <string name="stage_converting_whatsapp">Converting for WhatsApp %1$d/%2$d</string>
+    <string name="stage_pushing_telegram">Pushing to Telegram %1$d/%2$d</string>
+    <string name="stage_done">Done</string>
+
+    <!-- Relative date labels -->
+    <string name="date_today">Today</string>
+    <string name="date_yesterday">Yesterday</string>
+
+    <!-- Plurals -->
+    <plurals name="stickers_count">
+        <item quantity="one">%1$d sticker</item>
+        <item quantity="other">%1$d stickers</item>
+    </plurals>
+    <plurals name="sticker_packs_count">
+        <item quantity="one">%1$d sticker pack</item>
+        <item quantity="other">%1$d sticker packs</item>
+    </plurals>
+    <plurals name="parts_count">
+        <item quantity="one">%1$d part</item>
+        <item quantity="other">%1$d parts</item>
+    </plurals>
+    <plurals name="pick_media_selected">
+        <item quantity="one">  Pick photos/video (%1$d selected)</item>
+        <item quantity="other">  Pick photos/video (%1$d selected)</item>
+    </plurals>
+    <plurals name="date_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <plurals name="date_weeks_ago">
+        <item quantity="one">%1$d week ago</item>
+        <item quantity="other">%1$d weeks ago</item>
+    </plurals>
 </resources>

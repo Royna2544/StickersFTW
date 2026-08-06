@@ -51,11 +51,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramClientInfo
@@ -94,11 +97,11 @@ fun PackStatusChip(
     modifier: Modifier = Modifier,
 ) {
     val (label, color) = when (status) {
-        PackStatus.Building -> "Building" to MaterialTheme.colorScheme.outline
-        PackStatus.Downloading -> "Downloading" to TelegramBlue
-        PackStatus.Converting -> "Converting" to TelegramBlue
-        PackStatus.Ready -> "Ready" to PositiveGreen
-        PackStatus.Failed -> "Failed" to MaterialTheme.colorScheme.error
+        PackStatus.Building -> stringResource(R.string.pack_status_building) to MaterialTheme.colorScheme.outline
+        PackStatus.Downloading -> stringResource(R.string.pack_status_downloading) to TelegramBlue
+        PackStatus.Converting -> stringResource(R.string.pack_status_converting) to TelegramBlue
+        PackStatus.Ready -> stringResource(R.string.pack_status_ready) to PositiveGreen
+        PackStatus.Failed -> stringResource(R.string.pack_status_failed) to MaterialTheme.colorScheme.error
     }
     Surface(
         modifier = modifier,
@@ -160,17 +163,19 @@ fun StickerPreviewImagesRow(
     }
 }
 
+@Composable
 private fun TelegramClientInfo?.detailLabel(): String = when (this?.kind) {
-    null -> "Not installed"
-    TelegramClientKind.Official -> "Installed"
+    null -> stringResource(R.string.status_not_installed)
+    TelegramClientKind.Official -> stringResource(R.string.status_installed)
     TelegramClientKind.OfficialAlt -> displayName
     TelegramClientKind.ThirdParty -> displayName
 }
 
+@Composable
 private fun TelegramClientInfo?.statusLabel(): String = when (this?.kind) {
-    null -> "—"
-    TelegramClientKind.Official, TelegramClientKind.OfficialAlt -> "OK"
-    TelegramClientKind.ThirdParty -> "Third-party"
+    null -> stringResource(R.string.status_dash)
+    TelegramClientKind.Official, TelegramClientKind.OfficialAlt -> stringResource(R.string.status_ok)
+    TelegramClientKind.ThirdParty -> stringResource(R.string.status_third_party)
 }
 
 @Composable
@@ -190,15 +195,15 @@ fun ServiceStatusPanel(
     ) {
         StatusRow(
             icon = Icons.Rounded.Cloud,
-            title = "Server",
+            title = stringResource(R.string.status_server_title),
             detail = serverUrl.removePrefix("http://").removePrefix("https://"),
-            status = "Ready",
+            status = stringResource(R.string.status_server_ready),
             statusColor = PositiveGreen,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
         StatusRow(
             icon = Icons.AutoMirrored.Rounded.Send,
-            title = "Telegram",
+            title = stringResource(R.string.status_telegram_title),
             detail = telegramClient.detailLabel(),
             status = telegramClient.statusLabel(),
             statusColor = if (telegramClient != null) TelegramBlue else MaterialTheme.colorScheme.outline,
@@ -206,9 +211,9 @@ fun ServiceStatusPanel(
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
         StatusRow(
             icon = Icons.Rounded.Workspaces,
-            title = "WhatsApp",
-            detail = if (whatsappInstalled) "Installed" else "Not installed",
-            status = if (whatsappInstalled) "OK" else "—",
+            title = stringResource(R.string.status_whatsapp_title),
+            detail = stringResource(if (whatsappInstalled) R.string.status_installed else R.string.status_not_installed),
+            status = stringResource(if (whatsappInstalled) R.string.status_ok else R.string.status_dash),
             statusColor = if (whatsappInstalled) WhatsAppGreen else MaterialTheme.colorScheme.error,
         )
     }
@@ -327,7 +332,8 @@ fun PackGridCard(
             ) {
                 Text(pack.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
-                    text = "${pack.author} · ${pack.stickerCount} stickers",
+                    text = "${pack.author} · " +
+                        pluralStringResource(R.plurals.stickers_count, pack.stickerCount, pack.stickerCount),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -344,7 +350,7 @@ fun PackGridCard(
 fun ImportPackCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    label: String = "Import Pack",
+    label: String = stringResource(R.string.import_pack_card_label),
     icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.Add,
 ) {
     Box(
@@ -435,7 +441,7 @@ fun PackListCard(
                         Spacer(Modifier.width(6.dp))
                         Icon(
                             Icons.Rounded.PushPin,
-                            contentDescription = "Pinned",
+                            contentDescription = stringResource(R.string.cd_pinned),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(17.dp),
                         )
@@ -448,7 +454,7 @@ fun PackListCard(
                 ) {
                     PackStatusChip(pack.status)
                     Text(
-                        text = "${pack.stickerCount} stickers",
+                        text = pluralStringResource(R.plurals.stickers_count, pack.stickerCount, pack.stickerCount),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -464,14 +470,14 @@ fun PackListCard(
                 )
                 Box {
                     IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Rounded.MoreVert, contentDescription = "Pack menu")
+                        Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(R.string.cd_pack_menu))
                     }
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
                     ) {
                         DropdownMenuItem(
-                            text = { Text(if (pack.isPinned) "Unpin" else "Pin") },
+                            text = { Text(stringResource(if (pack.isPinned) R.string.action_unpin else R.string.action_pin)) },
                             onClick = {
                                 menuExpanded = false
                                 onTogglePinned()
@@ -481,7 +487,7 @@ fun PackListCard(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete") },
+                            text = { Text(stringResource(R.string.action_delete)) },
                             onClick = {
                                 menuExpanded = false
                                 onDelete()
@@ -532,17 +538,17 @@ private fun PackUpdateDialog(
 ) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Update available") },
+        title = { Text(stringResource(R.string.update_dialog_title)) },
         text = {
-            Text("\"$packTitle\" has changed on Telegram since it was imported. Update it now? This will re-import it and clear any custom sticker selection.")
+            Text(stringResource(R.string.update_dialog_message, packTitle))
         },
         confirmButton = {
-            Button(onClick = onUpdate) { Text("Update") }
+            Button(onClick = onUpdate) { Text(stringResource(R.string.action_update)) }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onDisable) { Text("Disable updates") }
-                TextButton(onClick = onNotYet) { Text("Not yet") }
+                TextButton(onClick = onDisable) { Text(stringResource(R.string.action_disable_updates)) }
+                TextButton(onClick = onNotYet) { Text(stringResource(R.string.action_not_yet)) }
             }
         },
     )
@@ -590,11 +596,11 @@ fun AddToWhatsAppButton(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.Workspaces, contentDescription = null)
-            Text("  Add to WhatsApp")
+            Text(stringResource(R.string.action_add_to_whatsapp))
         }
         if (!whatsappAvailable) {
             Text(
-                text = "WhatsApp isn't installed on this device.",
+                text = stringResource(R.string.whatsapp_not_installed),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp, start = 4.dp),

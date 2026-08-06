@@ -13,7 +13,9 @@ import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.StickerPack
@@ -47,8 +49,8 @@ fun ConvertScreen(
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             PageHeader(
-                title = "Stickers FTW",
-                subtitle = "For The Win · For Telegram WhatsApp",
+                title = stringResource(R.string.convert_title),
+                subtitle = stringResource(R.string.app_tagline),
             )
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -60,8 +62,8 @@ fun ConvertScreen(
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
             SectionHeader(
-                title = "Pinned",
-                action = "See all",
+                title = stringResource(R.string.section_pinned),
+                action = stringResource(R.string.action_see_all),
                 onAction = onSeeAll,
                 modifier = Modifier.padding(top = 4.dp),
             )
@@ -88,7 +90,7 @@ fun ConvertScreen(
 private fun CreatePackCard(onClick: () -> Unit) {
     ImportPackCard(
         onClick = onClick,
-        label = "Create Pack",
+        label = stringResource(R.string.create_pack_label),
         icon = Icons.Rounded.AddPhotoAlternate,
     )
 }

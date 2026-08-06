@@ -41,10 +41,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.BuildConfig
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.ThemeMode
 import com.royna.stickersftw.ui.components.PageHeader
@@ -75,12 +77,12 @@ fun SettingsScreen(
             .padding(horizontal = 22.dp),
     ) {
         PageHeader(
-            title = "Settings",
+            title = stringResource(R.string.settings_title),
             modifier = Modifier.padding(top = 22.dp, bottom = 28.dp),
         )
 
         Text(
-            text = "SERVER URL",
+            text = stringResource(R.string.settings_section_server_url),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
@@ -111,7 +113,7 @@ fun SettingsScreen(
                         .padding(horizontal = 18.dp),
                 )
                 Text(
-                    text = "Edit",
+                    text = stringResource(R.string.action_edit),
                     color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.labelLarge,
                 )
@@ -120,7 +122,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(28.dp))
         Text(
-            text = "TELEGRAM PUSH",
+            text = stringResource(R.string.settings_section_telegram_push),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
@@ -136,10 +138,9 @@ fun SettingsScreen(
                 modifier = Modifier.padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                val botLabel = botUsername?.let { "@$it" } ?: "the bot configured on your server"
+                val botLabel = botUsername?.let { "@$it" } ?: stringResource(R.string.settings_telegram_push_bot_fallback)
                 Text(
-                    text = "To push a pack to Telegram, message $botLabel and send /start, " +
-                        "then paste your numeric user ID below (get it from @userinfobot).",
+                    text = stringResource(R.string.settings_telegram_push_body, botLabel),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -147,7 +148,7 @@ fun SettingsScreen(
                     value = telegramUserId,
                     onValueChange = { telegramUserId = it.filter { c -> c.isDigit() } },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Telegram user ID") },
+                    label = { Text(stringResource(R.string.settings_telegram_user_id_label)) },
                     leadingIcon = { Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null) },
                     singleLine = true,
                 )
@@ -156,14 +157,14 @@ fun SettingsScreen(
                     enabled = telegramUserId != settings.telegramUserId,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Save")
+                    Text(stringResource(R.string.action_save))
                 }
             }
         }
 
         Spacer(Modifier.height(28.dp))
         Text(
-            text = "PACK UPDATES",
+            text = stringResource(R.string.settings_section_pack_updates),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
@@ -180,7 +181,7 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Check imported packs for updates when refreshing My Packs",
+                    text = stringResource(R.string.settings_pack_updates_body),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f).padding(end = 12.dp),
                 )
@@ -193,7 +194,7 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(28.dp))
         Text(
-            text = "THEME",
+            text = stringResource(R.string.settings_section_theme),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
@@ -227,21 +228,19 @@ fun SettingsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = "Stickers FTW v${BuildConfig.VERSION_NAME}",
+                    text = stringResource(R.string.settings_version, BuildConfig.VERSION_NAME),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                 )
                 Spacer(Modifier.height(5.dp))
                 Text(
-                    text = "For The Win · For Telegram WhatsApp",
+                    text = stringResource(R.string.app_tagline),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "Import an existing Telegram pack and add it to WhatsApp, or build a " +
-                        "new pack from photos/video and publish it to Telegram and WhatsApp. " +
-                        "Conversion runs locally on the device.",
+                    text = stringResource(R.string.settings_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                     textAlign = TextAlign.Center,
@@ -275,6 +274,13 @@ private fun ThemeChoice(
         ThemeMode.Light -> Icons.Rounded.LightMode
         ThemeMode.Dark -> Icons.Rounded.DarkMode
     }
+    val label = stringResource(
+        when (mode) {
+            ThemeMode.System -> R.string.theme_system
+            ThemeMode.Light -> R.string.theme_light
+            ThemeMode.Dark -> R.string.theme_dark
+        },
+    )
 
     Card(
         modifier = modifier
@@ -301,7 +307,7 @@ private fun ThemeChoice(
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(31.dp))
             Spacer(Modifier.height(12.dp))
-            Text(mode.name, style = MaterialTheme.typography.titleMedium)
+            Text(label, style = MaterialTheme.typography.titleMedium)
         }
     }
 }
@@ -317,29 +323,33 @@ private fun ServerUrlDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Server URL") },
+        title = { Text(stringResource(R.string.server_url_dialog_title)) },
         text = {
             Column {
-                Text("The Android app uses this endpoint to fetch Telegram sticker files.")
+                Text(stringResource(R.string.server_url_dialog_body))
                 Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
                     singleLine = true,
-                    label = { Text("Base URL") },
+                    label = { Text(stringResource(R.string.server_url_dialog_label)) },
                     supportingText = {
-                        Text(if (valid) "Example: http://10.0.2.2:8080" else "Include http:// or https://")
+                        Text(
+                            stringResource(
+                                if (valid) R.string.server_url_dialog_example else R.string.server_url_dialog_hint_invalid,
+                            ),
+                        )
                     },
                 )
             }
         },
         confirmButton = {
             Button(onClick = { onSave(value) }, enabled = valid) {
-                Text("Save")
+                Text(stringResource(R.string.action_save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }

@@ -32,7 +32,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.AddToWhatsAppButton
@@ -53,10 +55,10 @@ fun ConversionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Conversion") },
+                title = { Text(stringResource(R.string.conversion_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
             )
@@ -100,9 +102,9 @@ fun ConversionScreen(
             Spacer(Modifier.height(24.dp))
             Text(
                 text = when {
-                    hasError -> "Something went wrong"
-                    state.isComplete -> "Pack ready"
-                    else -> "Working on ${pack?.title.orEmpty()}"
+                    hasError -> stringResource(R.string.conversion_error_title)
+                    state.isComplete -> stringResource(R.string.conversion_ready_title)
+                    else -> stringResource(R.string.conversion_working_on, pack?.title.orEmpty())
                 },
                 style = MaterialTheme.typography.headlineMedium,
             )
@@ -110,7 +112,7 @@ fun ConversionScreen(
             Text(
                 text = when {
                     hasError -> state.errorMessage.orEmpty()
-                    state.isComplete -> "The converted pack is ready."
+                    state.isComplete -> stringResource(R.string.conversion_ready_body)
                     else -> state.stage
                 },
                 style = MaterialTheme.typography.bodyLarge,
@@ -147,9 +149,9 @@ fun ConversionScreen(
                         modifier = Modifier.padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        InfoRow("Pack", pack.title)
-                        InfoRow("Stickers", pack.stickerCount.toString())
-                        InfoRow("Processing", "On this device")
+                        InfoRow(stringResource(R.string.conversion_pack_label), pack.title)
+                        InfoRow(stringResource(R.string.conversion_stickers_label), pack.stickerCount.toString())
+                        InfoRow(stringResource(R.string.conversion_processing_label), stringResource(R.string.conversion_processing_value))
                     }
                 }
             }
@@ -161,7 +163,7 @@ fun ConversionScreen(
                         onClick = onBack,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Back")
+                        Text(stringResource(R.string.action_back))
                     }
                 }
                 state.isComplete -> {
@@ -178,7 +180,7 @@ fun ConversionScreen(
                             onClick = onConvertOtherParts,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Convert other parts of pack")
+                            Text(stringResource(R.string.action_convert_other_parts))
                         }
                     }
                     Spacer(Modifier.height(12.dp))
@@ -186,7 +188,7 @@ fun ConversionScreen(
                         onClick = onOpenPacks,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Open My Packs")
+                        Text(stringResource(R.string.action_open_my_packs))
                     }
                 }
                 else -> {
@@ -194,7 +196,7 @@ fun ConversionScreen(
                         onClick = onBack,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Run in background")
+                        Text(stringResource(R.string.action_run_in_background))
                     }
                 }
             }

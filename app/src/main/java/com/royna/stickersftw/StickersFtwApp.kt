@@ -1,5 +1,6 @@
 package com.royna.stickersftw
 
+import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Settings
@@ -14,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -49,14 +51,14 @@ private object Routes {
 
 private data class MainDestination(
     val route: String,
-    val label: String,
+    @StringRes val labelRes: Int,
     val icon: ImageVector,
 )
 
 private val mainDestinations = listOf(
-    MainDestination(Routes.Convert, "Convert", Icons.Rounded.SwapHoriz),
-    MainDestination(Routes.Packs, "My Packs", Icons.Rounded.Inventory2),
-    MainDestination(Routes.Settings, "Settings", Icons.Rounded.Settings),
+    MainDestination(Routes.Convert, R.string.nav_convert, Icons.Rounded.SwapHoriz),
+    MainDestination(Routes.Packs, R.string.nav_my_packs, Icons.Rounded.Inventory2),
+    MainDestination(Routes.Settings, R.string.nav_settings, Icons.Rounded.Settings),
 )
 
 private fun NavHostController.navigateToMainDestination(route: String) {
@@ -108,9 +110,9 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                                 navController.navigateToMainDestination(destination.route)
                             },
                             icon = {
-                                Icon(destination.icon, contentDescription = destination.label)
+                                Icon(destination.icon, contentDescription = stringResource(destination.labelRes))
                             },
-                            label = { Text(destination.label) },
+                            label = { Text(stringResource(destination.labelRes)) },
                             colors = NavigationBarItemDefaults.colors(
                                 indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                             ),

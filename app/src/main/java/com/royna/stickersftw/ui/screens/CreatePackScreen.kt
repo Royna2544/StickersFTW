@@ -47,7 +47,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 
@@ -88,10 +91,10 @@ fun CreatePackScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Create Pack") },
+                title = { Text(stringResource(R.string.create_pack_label)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
             )
@@ -106,7 +109,7 @@ fun CreatePackScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Text(
-                text = "Pick photos or short video clips, tag each with an emoji, and publish as a new pack.",
+                text = stringResource(R.string.create_pack_instructions),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -120,7 +123,7 @@ fun CreatePackScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null)
-                Text("  Pick photos/video (${mediaItems.size} selected)")
+                Text(pluralStringResource(R.plurals.pick_media_selected, mediaItems.size, mediaItems.size))
             }
 
             if (mediaItems.isNotEmpty()) {
@@ -147,7 +150,7 @@ fun CreatePackScreen(
                                     if (item.kind == PickedMediaKind.Video) {
                                         Icon(
                                             Icons.Rounded.Movie,
-                                            contentDescription = "Video",
+                                            contentDescription = stringResource(R.string.cd_video),
                                             modifier = Modifier.size(40.dp).padding(8.dp),
                                         )
                                     } else {
@@ -163,12 +166,12 @@ fun CreatePackScreen(
                                     value = item.emoji,
                                     onValueChange = { mediaItems[index] = item.copy(emoji = it) },
                                     modifier = Modifier.width(90.dp),
-                                    label = { Text("Emoji") },
+                                    label = { Text(stringResource(R.string.create_pack_emoji_label)) },
                                     singleLine = true,
                                 )
                                 Spacer(Modifier.weight(1f))
                                 IconButton(onClick = { mediaItems.removeAt(index) }) {
-                                    Icon(Icons.Rounded.Close, contentDescription = "Remove")
+                                    Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cd_remove))
                                 }
                             }
                         }
@@ -180,34 +183,36 @@ fun CreatePackScreen(
                 value = title,
                 onValueChange = { title = it },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Pack title") },
+                label = { Text(stringResource(R.string.create_pack_title_label)) },
                 singleLine = true,
             )
             OutlinedTextField(
                 value = shortName,
                 onValueChange = { shortName = it.filter { c -> c.isLetterOrDigit() || c == '_' } },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Short name (for Telegram)") },
+                label = { Text(stringResource(R.string.create_pack_short_name_label)) },
                 supportingText = {
                     Text(
-                        if (shortName.isBlank() || shortNameValid) {
-                            "Letters, digits and underscores; must start with a letter."
-                        } else {
-                            "Must start with a letter and contain only letters, digits and underscores."
-                        },
+                        stringResource(
+                            if (shortName.isBlank() || shortNameValid) {
+                                R.string.create_pack_short_name_hint_valid
+                            } else {
+                                R.string.create_pack_short_name_hint_invalid
+                            },
+                        ),
                     )
                 },
                 singleLine = true,
             )
 
-            Text("Publish to", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.create_pack_publish_to), style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = pushToTelegram, onCheckedChange = { pushToTelegram = it })
-                Text("Telegram")
+                Text(stringResource(R.string.label_telegram))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = addToWhatsapp, onCheckedChange = { addToWhatsapp = it })
-                Text("WhatsApp")
+                Text(stringResource(R.string.label_whatsapp))
             }
 
             Button(
@@ -215,11 +220,11 @@ fun CreatePackScreen(
                 enabled = canPublish,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Create and publish")
+                Text(stringResource(R.string.action_create_and_publish))
             }
             if (mediaItems.size in 1..2) {
                 Text(
-                    text = "Pick at least 3 items -- both Telegram and WhatsApp require a 3-sticker minimum.",
+                    text = stringResource(R.string.create_pack_min_items_warning),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                 )

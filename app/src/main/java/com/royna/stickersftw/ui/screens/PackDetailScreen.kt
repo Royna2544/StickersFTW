@@ -33,7 +33,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.royna.stickersftw.R
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.StickerPack
@@ -63,16 +66,16 @@ fun PackDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(pack?.title ?: "Pack") },
+                title = { Text(pack?.title ?: stringResource(R.string.pack_detail_title_fallback)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
                 actions = {
                     if (pack != null) {
                         IconButton(onClick = { onTogglePinned(pack.id) }) {
-                            Icon(Icons.Rounded.PushPin, contentDescription = "Pin pack")
+                            Icon(Icons.Rounded.PushPin, contentDescription = stringResource(R.string.cd_pin_pack))
                         }
                     }
                 },
@@ -87,7 +90,7 @@ fun PackDetailScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text("Pack not found")
+                Text(stringResource(R.string.pack_detail_not_found))
             }
             return@Scaffold
         }
@@ -101,10 +104,10 @@ fun PackDetailScreen(
         ) {
             PackHeroCard(pack)
 
-            Text("Preview", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(R.string.pack_detail_preview), style = MaterialTheme.typography.titleLarge)
             if (pack.previewStickerPaths.isEmpty()) {
                 Text(
-                    text = "No converted stickers yet.",
+                    text = stringResource(R.string.pack_detail_no_stickers),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
@@ -143,7 +146,7 @@ fun PackDetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null)
-                    Text("  Push to Telegram")
+                    Text(stringResource(R.string.action_push_to_telegram))
                 }
             }
 
@@ -152,7 +155,7 @@ fun PackDetailScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.Delete, contentDescription = null)
-                Text("  Delete local pack")
+                Text(stringResource(R.string.action_delete_local_pack))
             }
         }
     }
@@ -185,14 +188,15 @@ private fun PackHeroCard(pack: StickerPack) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 PackStatusChip(pack.status)
-                if (pack.whatsappAdded == true) SuccessBadge("Added to WhatsApp")
-                if (pack.telegramPushState is TelegramPushState.Pushed) SuccessBadge("On Telegram")
+                if (pack.whatsappAdded == true) SuccessBadge(stringResource(R.string.badge_added_to_whatsapp))
+                if (pack.telegramPushState is TelegramPushState.Pushed) SuccessBadge(stringResource(R.string.badge_on_telegram))
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "${pack.stickerCount} stickers${if (pack.isAnimated) " · animated" else ""}",
+                text = pluralStringResource(R.plurals.stickers_count, pack.stickerCount, pack.stickerCount) +
+                    if (pack.isAnimated) stringResource(R.string.pack_detail_animated_suffix) else "",
                 style = MaterialTheme.typography.bodyLarge,
             )
             if (pack.errorMessage != null) {
