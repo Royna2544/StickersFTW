@@ -22,6 +22,7 @@ class SettingsRepository(
         val ThemeMode = stringPreferencesKey("theme_mode")
         val TelegramUserId = stringPreferencesKey("telegram_user_id")
         val UpdateChecksEnabled = booleanPreferencesKey("update_checks_enabled")
+        val PingTestsEnabled = booleanPreferencesKey("ping_tests_enabled")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data
@@ -40,6 +41,7 @@ class SettingsRepository(
                     ?: ThemeMode.System,
                 telegramUserId = preferences[Keys.TelegramUserId] ?: "",
                 updateChecksEnabled = preferences[Keys.UpdateChecksEnabled] ?: true,
+                pingTestsEnabled = preferences[Keys.PingTestsEnabled] ?: true,
             )
         }
 
@@ -64,6 +66,12 @@ class SettingsRepository(
     suspend fun setUpdateChecksEnabled(enabled: Boolean) {
         context.settingsDataStore.edit { preferences ->
             preferences[Keys.UpdateChecksEnabled] = enabled
+        }
+    }
+
+    suspend fun setPingTestsEnabled(enabled: Boolean) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[Keys.PingTestsEnabled] = enabled
         }
     }
 }

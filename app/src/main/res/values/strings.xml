@@ -28,6 +28,8 @@
     <!-- Service status panel -->
     <string name="status_server_title">Server</string>
     <string name="status_server_ready">Ready</string>
+    <string name="status_server_checking">Checking…</string>
+    <string name="status_server_unreachable">Unreachable</string>
     <string name="status_telegram_title">Telegram</string>
     <string name="status_whatsapp_title">WhatsApp</string>
     <string name="status_not_installed">Not installed</string>
@@ -73,6 +75,8 @@
     <string name="settings_telegram_user_id_label">Telegram user ID</string>
     <string name="settings_section_pack_updates">PACK UPDATES</string>
     <string name="settings_pack_updates_body">Check imported packs for updates when refreshing My Packs</string>
+    <string name="settings_section_connection">CONNECTION</string>
+    <string name="settings_ping_tests_body">Test the server connection before saving its URL, and show live status on the Convert page</string>
     <string name="settings_section_theme">THEME</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
@@ -84,6 +88,10 @@
     <string name="server_url_dialog_label">Base URL</string>
     <string name="server_url_dialog_example">Example: http://10.0.2.2:8080</string>
     <string name="server_url_dialog_hint_invalid">Include http:// or https://</string>
+    <string name="server_url_dialog_checking">Checking connection…</string>
+    <string name="server_url_unreachable_title">Couldn\'t reach server</string>
+    <string name="server_url_unreachable_message">Couldn\'t connect to %1$s. Save it anyway?</string>
+    <string name="action_save_anyway">Save anyway</string>
 
     <!-- Import screen -->
     <string name="import_screen_title">Import Telegram Pack</string>

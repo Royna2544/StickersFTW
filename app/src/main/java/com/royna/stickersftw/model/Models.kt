@@ -11,7 +11,18 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.System,
     val telegramUserId: String = "",
     val updateChecksEnabled: Boolean = true,
+    val pingTestsEnabled: Boolean = true,
 )
+
+/** Live result of actually reaching the configured server -- distinct from
+ * [AppSettings.serverUrl] itself, which says nothing about reachability. */
+sealed class ServerConnectionStatus {
+    /** Ping tests are off, or none has run yet this session. */
+    data object Unknown : ServerConnectionStatus()
+    data object Checking : ServerConnectionStatus()
+    data object Connected : ServerConnectionStatus()
+    data object Failed : ServerConnectionStatus()
+}
 
 enum class TelegramClientKind {
     /** The real, official Telegram app. */

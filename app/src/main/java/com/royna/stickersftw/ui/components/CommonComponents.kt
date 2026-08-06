@@ -69,6 +69,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.PackStatus
+import com.royna.stickersftw.model.ServerConnectionStatus
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramClientInfo
 import com.royna.stickersftw.model.TelegramClientKind
@@ -190,10 +191,19 @@ private fun TelegramClientInfo?.statusLabel(): String = when (this?.kind) {
 @Composable
 fun ServiceStatusPanel(
     serverUrl: String,
+    serverStatus: ServerConnectionStatus,
+    onRetryServerCheck: () -> Unit,
     telegramClient: TelegramClientInfo?,
     whatsappInstalled: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val (serverStatusLabel, serverStatusColor) = when (serverStatus) {
+        ServerConnectionStatus.Unknown -> stringResource(R.string.status_dash) to MaterialTheme.colorScheme.outline
+        ServerConnectionStatus.Checking -> stringResource(R.string.status_server_checking) to MaterialTheme.colorScheme.outline
+        ServerConnectionStatus.Connected -> stringResource(R.string.status_server_ready) to PositiveGreen
+        ServerConnectionStatus.Failed -> stringResource(R.string.status_server_unreachable) to MaterialTheme.colorScheme.error
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(30.dp),
@@ -206,8 +216,9 @@ fun ServiceStatusPanel(
             icon = Icons.Rounded.Cloud,
             title = stringResource(R.string.status_server_title),
             detail = serverUrl.removePrefix("http://").removePrefix("https://"),
-            status = stringResource(R.string.status_server_ready),
-            statusColor = PositiveGreen,
+            status = serverStatusLabel,
+            statusColor = serverStatusColor,
+            onClick = onRetryServerCheck,
         )
         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
         StatusRow(
@@ -235,10 +246,12 @@ private fun StatusRow(
     detail: String,
     status: String,
     statusColor: Color,
+    onClick: (() -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

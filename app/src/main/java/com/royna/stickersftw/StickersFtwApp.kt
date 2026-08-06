@@ -216,10 +216,13 @@ fun StickersFtwApp(
             startDestination = Routes.Convert,
         ) {
             composable(Routes.Convert) {
+                val serverStatus by viewModel.serverStatus.collectAsStateWithLifecycle()
                 ConvertScreen(
                     settings = settings,
                     installedApps = installedApps,
                     packs = packs,
+                    serverStatus = serverStatus,
+                    onCheckServerConnection = viewModel::checkServerConnection,
                     onOpenPack = { navController.navigate(Routes.detail(it)) },
                     onSeeAll = { navController.navigate(Routes.Packs) },
                     contentPadding = scaffoldPadding,
@@ -250,10 +253,12 @@ fun StickersFtwApp(
                     settings = settings,
                     botUsername = botUsername,
                     onFetchBotUsername = viewModel::fetchBotUsername,
-                    onSetServerUrl = viewModel::setServerUrl,
+                    onCheckAndSaveServerUrl = viewModel::checkAndSaveServerUrl,
+                    onForceSaveServerUrl = viewModel::forceSaveServerUrl,
                     onSetThemeMode = viewModel::setThemeMode,
                     onSetTelegramUserId = viewModel::setTelegramUserId,
                     onSetUpdateChecksEnabled = viewModel::setUpdateChecksEnabled,
+                    onSetPingTestsEnabled = viewModel::setPingTestsEnabled,
                     contentPadding = scaffoldPadding,
                 )
             }

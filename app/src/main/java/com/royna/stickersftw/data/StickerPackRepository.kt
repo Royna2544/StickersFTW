@@ -60,6 +60,17 @@ class StickerPackRepository(private val appContext: Context) {
     private val packDao: PackDao = database.packDao()
     private val stickerDao: StickerDao = database.stickerDao()
 
+    /** A lightweight reachability check (hits the same cheap /v1/bot route
+     * used to show the bot's username) -- deliberately a single attempt with
+     * no retry, since this backs interactive "is this server reachable"
+     * checks (Settings save, Convert page status) that need a prompt answer,
+     * not a resilient background operation. */
+    suspend fun pingServer(serverUrl: String): Boolean = try {
+        RetrofitProvider.apiFor(serverUrl).getBotInfo().isSuccessful
+    } catch (_: Exception) {
+        false
+    }
+
     fun observePacks(): Flow<List<StickerPack>> =
         packDao.observePacksWithStickers().map { list -> list.map { it.toUiModel() } }
 

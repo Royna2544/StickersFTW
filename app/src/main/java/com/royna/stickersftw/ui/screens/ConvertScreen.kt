@@ -9,12 +9,14 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.InstalledAppsState
+import com.royna.stickersftw.model.ServerConnectionStatus
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.PackGridCard
 import com.royna.stickersftw.ui.components.PageHeader
@@ -26,11 +28,17 @@ fun ConvertScreen(
     settings: AppSettings,
     installedApps: InstalledAppsState,
     packs: List<StickerPack>,
+    serverStatus: ServerConnectionStatus,
+    onCheckServerConnection: () -> Unit,
     onOpenPack: (String) -> Unit,
     onSeeAll: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val pinned = packs.filter { it.isPinned }
+
+    LaunchedEffect(settings.serverUrl, settings.pingTestsEnabled) {
+        onCheckServerConnection()
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 158.dp),
@@ -50,6 +58,8 @@ fun ConvertScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             ServiceStatusPanel(
                 serverUrl = settings.serverUrl,
+                serverStatus = serverStatus,
+                onRetryServerCheck = onCheckServerConnection,
                 telegramClient = installedApps.telegramClient,
                 whatsappInstalled = installedApps.whatsappInstalled || installedApps.whatsappBusinessInstalled,
             )

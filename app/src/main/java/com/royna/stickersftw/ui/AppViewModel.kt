@@ -18,6 +18,7 @@ import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PickedMediaItem
+import com.royna.stickersftw.model.ServerConnectionStatus
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramClientInfo
 import com.royna.stickersftw.model.TelegramClientKind
@@ -43,6 +44,11 @@ data class DuplicatePackPrompt(
     val onConfirm: () -> Unit,
     val onReject: () -> Unit,
 )
+
+sealed class ServerUrlSaveResult {
+    data object Saved : ServerUrlSaveResult()
+    data object ConnectionFailed : ServerUrlSaveResult()
+}
 
 sealed class ImportPreviewUiState {
     data object Idle : ImportPreviewUiState()
@@ -96,6 +102,26 @@ class AppViewModel(
 
     private val _installedApps = MutableStateFlow(InstalledAppsState())
     val installedApps: StateFlow<InstalledAppsState> = _installedApps.asStateFlow()
+
+    private val _serverStatus = MutableStateFlow<ServerConnectionStatus>(ServerConnectionStatus.Unknown)
+    val serverStatus: StateFlow<ServerConnectionStatus> = _serverStatus.asStateFlow()
+    private var serverCheckJob: Job? = null
+
+    /** Drives the Convert page's server status row -- a no-op when ping
+     * tests are disabled in Settings, leaving the status "Unknown" rather
+     * than claiming a reachability it never actually checked. */
+    fun checkServerConnection() {
+        if (!settings.value.pingTestsEnabled) {
+            _serverStatus.value = ServerConnectionStatus.Unknown
+            return
+        }
+        serverCheckJob?.cancel()
+        serverCheckJob = viewModelScope.launch {
+            _serverStatus.value = ServerConnectionStatus.Checking
+            val reachable = packRepository.pingServer(settings.value.serverUrl)
+            _serverStatus.value = if (reachable) ServerConnectionStatus.Connected else ServerConnectionStatus.Failed
+        }
+    }
 
     private val _conversion = MutableStateFlow(ConversionUiState())
     val conversion: StateFlow<ConversionUiState> = _conversion.asStateFlow()
@@ -202,6 +228,28 @@ class AppViewModel(
         viewModelScope.launch { settingsRepository.setServerUrl(url) }
     }
 
+    /** Settings' "Save" action on the server URL: pings the *new* URL first
+     * (unless ping tests are disabled) so a typo/unreachable server is
+     * caught before it's persisted, rather than only surfacing later as a
+     * confusing failure somewhere else in the app. A failed ping does not
+     * save -- [onResult] reports [ServerUrlSaveResult.ConnectionFailed] so
+     * the caller can ask the user whether to save anyway. */
+    fun checkAndSaveServerUrl(url: String, onResult: (ServerUrlSaveResult) -> Unit) {
+        viewModelScope.launch {
+            if (!settings.value.pingTestsEnabled || packRepository.pingServer(url)) {
+                settingsRepository.setServerUrl(url)
+                onResult(ServerUrlSaveResult.Saved)
+            } else {
+                onResult(ServerUrlSaveResult.ConnectionFailed)
+            }
+        }
+    }
+
+    /** "Save anyway" after [checkAndSaveServerUrl] reported a failed ping. */
+    fun forceSaveServerUrl(url: String) {
+        setServerUrl(url)
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { settingsRepository.setThemeMode(mode) }
     }
@@ -212,6 +260,10 @@ class AppViewModel(
 
     fun setUpdateChecksEnabled(enabled: Boolean) {
         viewModelScope.launch { settingsRepository.setUpdateChecksEnabled(enabled) }
+    }
+
+    fun setPingTestsEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setPingTestsEnabled(enabled) }
     }
 
     /** Best-effort lookup so Settings can show "message @bot_username" --

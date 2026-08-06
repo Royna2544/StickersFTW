@@ -49,6 +49,7 @@ import com.royna.stickersftw.BuildConfig
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.ThemeMode
+import com.royna.stickersftw.ui.ServerUrlSaveResult
 import com.royna.stickersftw.ui.components.PageHeader
 
 @Composable
@@ -56,13 +57,17 @@ fun SettingsScreen(
     settings: AppSettings,
     botUsername: String?,
     onFetchBotUsername: () -> Unit,
-    onSetServerUrl: (String) -> Unit,
+    onCheckAndSaveServerUrl: (url: String, onResult: (ServerUrlSaveResult) -> Unit) -> Unit,
+    onForceSaveServerUrl: (String) -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetTelegramUserId: (String) -> Unit,
     onSetUpdateChecksEnabled: (Boolean) -> Unit,
+    onSetPingTestsEnabled: (Boolean) -> Unit,
     contentPadding: PaddingValues,
 ) {
     var editingServer by remember { mutableStateOf(false) }
+    var checkingServer by remember { mutableStateOf(false) }
+    var pendingFailedUrl by remember { mutableStateOf<String?>(null) }
     var telegramUserId by remember(settings.telegramUserId) { mutableStateOf(settings.telegramUserId) }
 
     LaunchedEffect(settings.serverUrl) {
@@ -194,6 +199,36 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(28.dp))
         Text(
+            text = stringResource(R.string.settings_section_connection),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(25.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_ping_tests_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                )
+                Switch(
+                    checked = settings.pingTestsEnabled,
+                    onCheckedChange = onSetPingTestsEnabled,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+        Text(
             text = stringResource(R.string.settings_section_theme),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -253,10 +288,38 @@ fun SettingsScreen(
     if (editingServer) {
         ServerUrlDialog(
             initialValue = settings.serverUrl,
+            isChecking = checkingServer,
             onDismiss = { editingServer = false },
             onSave = { value ->
-                onSetServerUrl(value)
-                editingServer = false
+                checkingServer = true
+                onCheckAndSaveServerUrl(value) { result ->
+                    checkingServer = false
+                    when (result) {
+                        ServerUrlSaveResult.Saved -> editingServer = false
+                        ServerUrlSaveResult.ConnectionFailed -> pendingFailedUrl = value
+                    }
+                }
+            },
+        )
+    }
+
+    val failedUrl = pendingFailedUrl
+    if (failedUrl != null) {
+        AlertDialog(
+            onDismissRequest = { pendingFailedUrl = null },
+            title = { Text(stringResource(R.string.server_url_unreachable_title)) },
+            text = { Text(stringResource(R.string.server_url_unreachable_message, failedUrl)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onForceSaveServerUrl(failedUrl)
+                        pendingFailedUrl = null
+                        editingServer = false
+                    },
+                ) { Text(stringResource(R.string.action_save_anyway)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingFailedUrl = null }) { Text(stringResource(R.string.action_cancel)) }
             },
         )
     }
@@ -315,6 +378,7 @@ private fun ThemeChoice(
 @Composable
 private fun ServerUrlDialog(
     initialValue: String,
+    isChecking: Boolean,
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
@@ -322,7 +386,7 @@ private fun ServerUrlDialog(
     val valid = value.startsWith("http://") || value.startsWith("https://")
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isChecking) onDismiss() },
         title = { Text(stringResource(R.string.server_url_dialog_title)) },
         text = {
             Column {
@@ -331,6 +395,7 @@ private fun ServerUrlDialog(
                 OutlinedTextField(
                     value = value,
                     onValueChange = { value = it },
+                    enabled = !isChecking,
                     singleLine = true,
                     label = { Text(stringResource(R.string.server_url_dialog_label)) },
                     supportingText = {
@@ -341,15 +406,23 @@ private fun ServerUrlDialog(
                         )
                     },
                 )
+                if (isChecking) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        stringResource(R.string.server_url_dialog_checking),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(value) }, enabled = valid) {
+            Button(onClick = { onSave(value) }, enabled = valid && !isChecking) {
                 Text(stringResource(R.string.action_save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+            TextButton(onClick = onDismiss, enabled = !isChecking) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }
