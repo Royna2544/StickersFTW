@@ -2,6 +2,8 @@ package com.royna.stickersftw.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -67,6 +69,7 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(contentPadding)
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 22.dp),
     ) {
         PageHeader(
@@ -213,6 +216,7 @@ fun SettingsScreen(
                 )
             }
         }
+        Spacer(Modifier.height(24.dp))
     }
 
     if (editingServer) {

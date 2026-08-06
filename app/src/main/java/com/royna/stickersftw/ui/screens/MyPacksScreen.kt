@@ -72,7 +72,14 @@ fun MyPacksScreen(
         )
         Spacer(Modifier.height(14.dp))
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            // weight(1f), not fillMaxSize(): this Column isn't scrollable
+            // itself, so an unweighted fillMaxSize() child would claim the
+            // *entire* column height on top of the header/search already
+            // stacked above it, overflowing past the screen and clipping
+            // the last few packs instead of letting you scroll to them.
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
