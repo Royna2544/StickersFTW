@@ -19,6 +19,7 @@
     <!-- Convert screen -->
     <string name="convert_title">Stickers FTW</string>
     <string name="section_pinned">Pinned</string>
+    <string name="section_pinned_empty">Nothing is pinned yet</string>
     <string name="action_see_all">See all</string>
     <string name="import_pack_card_label">Import Pack</string>
     <string name="create_pack_label">Create Pack</string>
@@ -48,6 +49,8 @@
     <!-- My Packs screen -->
     <string name="my_packs_title_with_counts">My Packs (animated: %1$d, static: %2$d)</string>
     <string name="search_packs_placeholder">Search packs…</string>
+    <string name="my_packs_empty">No packs yet</string>
+    <string name="my_packs_search_no_results">No packs match your search</string>
     <string name="cd_pinned">Pinned</string>
     <string name="cd_pack_menu">Pack menu</string>
     <string name="action_pin">Pin</string>

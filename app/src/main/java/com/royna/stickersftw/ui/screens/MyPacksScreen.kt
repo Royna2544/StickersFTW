@@ -1,6 +1,7 @@
 package com.royna.stickersftw.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -96,21 +98,33 @@ fun MyPacksScreen(
                 .fillMaxWidth()
                 .weight(1f),
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(filteredPacks, key = { it.id }) { pack ->
-                    val isActive = activeConversion.isRunning && activeConversion.packId == pack.id
-                    PackListCard(
-                        pack = pack,
-                        onClick = { if (isActive) onResumeConversion(pack.id) else onOpenPack(pack.id) },
-                        onTogglePinned = { onTogglePinned(pack.id) },
-                        onDelete = { onDeletePack(pack.id) },
-                        onRequestUpdate = { onRequestUpdate(pack.id) },
-                        onDisableUpdates = { onDisableUpdates(pack.id) },
-                        activeProgress = if (isActive) activeConversion.progress else null,
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(filteredPacks, key = { it.id }) { pack ->
+                        val isActive = activeConversion.isRunning && activeConversion.packId == pack.id
+                        PackListCard(
+                            pack = pack,
+                            onClick = { if (isActive) onResumeConversion(pack.id) else onOpenPack(pack.id) },
+                            onTogglePinned = { onTogglePinned(pack.id) },
+                            onDelete = { onDeletePack(pack.id) },
+                            onRequestUpdate = { onRequestUpdate(pack.id) },
+                            onDisableUpdates = { onDisableUpdates(pack.id) },
+                            activeProgress = if (isActive) activeConversion.progress else null,
+                        )
+                    }
+                }
+                if (filteredPacks.isEmpty()) {
+                    Text(
+                        text = stringResource(
+                            if (query.isBlank()) R.string.my_packs_empty else R.string.my_packs_search_no_results,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
             }
