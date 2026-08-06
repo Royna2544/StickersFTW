@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.royna.stickersftw.R
 import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.data.model.PackOperationProgress
@@ -15,20 +16,33 @@ import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.InstalledAppsState
+import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramClientInfo
 import com.royna.stickersftw.model.TelegramClientKind
 import com.royna.stickersftw.model.ThemeMode
 import com.royna.stickersftw.network.RetrofitProvider
+import com.royna.stickersftw.notifications.PackOperationNotifier
 import java.util.UUID
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+/** Shown as a full-screen prompt when an import request matches a pack/part
+ * already in My Packs -- [onConfirm] overwrites it in place (same pack id,
+ * old stickers/files replaced), [onReject] cancels the import outright
+ * rather than silently creating a duplicate entry. */
+data class DuplicatePackPrompt(
+    val packTitle: String,
+    val onConfirm: () -> Unit,
+    val onReject: () -> Unit,
+)
 
 sealed class ImportPreviewUiState {
     data object Idle : ImportPreviewUiState()
@@ -86,6 +100,16 @@ class AppViewModel(
     private val _conversion = MutableStateFlow(ConversionUiState())
     val conversion: StateFlow<ConversionUiState> = _conversion.asStateFlow()
 
+    /** One-shot: set when a download/conversion/publish was rejected because
+     * a different pack's operation is already running -- Telegram/the server
+     * flood-limits concurrent requests, so only one pack may run at a time. */
+    private val _busyMessage = MutableStateFlow<String?>(null)
+    val busyMessage: StateFlow<String?> = _busyMessage.asStateFlow()
+
+    fun consumeBusyMessage() {
+        _busyMessage.value = null
+    }
+
     private val _importPreview = MutableStateFlow<ImportPreviewUiState>(ImportPreviewUiState.Idle)
     val importPreview: StateFlow<ImportPreviewUiState> = _importPreview.asStateFlow()
 
@@ -102,6 +126,20 @@ class AppViewModel(
      * server-side, which would make old selected ids stale or wrong. */
     private val _customSelection = MutableStateFlow<Set<String>?>(null)
     val customSelection: StateFlow<Set<String>?> = _customSelection.asStateFlow()
+
+    private val _duplicatePrompt = MutableStateFlow<DuplicatePackPrompt?>(null)
+    val duplicatePrompt: StateFlow<DuplicatePackPrompt?> = _duplicatePrompt.asStateFlow()
+
+    /** One-shot signal for the UI to navigate to a just-started operation's
+     * Conversion screen -- a plain return value doesn't work here since a
+     * duplicate-pack import has to wait on [duplicatePrompt]'s answer
+     * first, so navigation can't happen synchronously at the call site. */
+    private val _pendingNavigation = MutableStateFlow<String?>(null)
+    val pendingNavigation: StateFlow<String?> = _pendingNavigation.asStateFlow()
+
+    fun consumePendingNavigation() {
+        _pendingNavigation.value = null
+    }
 
     /** The Telegram pack link/short-name last submitted to [loadPreview] --
      * exposed so the Import screen can re-populate its text field when
@@ -198,6 +236,22 @@ class AppViewModel(
         viewModelScope.launch { packRepository.deletePack(packId) }
     }
 
+    fun deletePackAndTelegramSet(packId: String, onResult: (StickerPackRepository.DeleteTelegramResult) -> Unit) {
+        viewModelScope.launch {
+            val result = packRepository.deletePackAndTelegramSet(packId, settings.value.serverUrl)
+            onResult(result)
+        }
+    }
+
+    fun observePackStickers(packId: String) = packRepository.observePackStickers(packId)
+
+    fun forceRefreshPack(packId: String, onResult: (StickerPackRepository.ForceRefreshResult) -> Unit) {
+        viewModelScope.launch {
+            val result = packRepository.forceRefreshPack(packId, settings.value.serverUrl)
+            onResult(result)
+        }
+    }
+
     fun loadPreview(input: String) {
         lastPreviewInput = input
         // The sticker order/contents could differ from any earlier preview
@@ -248,24 +302,56 @@ class AppViewModel(
     }
 
     /** Kicks off the real import for whatever is currently checked in the
-     * custom picker. */
-    fun startImportCustom(): String {
+     * custom picker. If this exact pack/slice was already imported, prompts
+     * to overwrite instead of silently creating a duplicate entry -- see
+     * [duplicatePrompt]. Navigation to the resulting pack's Conversion
+     * screen is driven by [pendingNavigation], not a return value, since a
+     * duplicate has to wait on the user's answer first. */
+    fun startImportCustom() {
         val selected = _customSelection.value ?: emptySet()
-        val packId = UUID.randomUUID().toString()
-        runOperation(packId) {
+        val shortName = packRepository.extractShortName(lastPreviewInput)
+        startImportOrPromptOverwrite(shortName, StickerPackRepository.CUSTOM_PART_INDEX) { packId ->
             packRepository.importAndConvertCustom(packId, settings.value.serverUrl, lastPreviewInput, selected)
         }
-        return packId
     }
 
-    /** Generates a pack id, kicks off the real fetch-and-convert flow for
-     * the given part (0-based; only relevant when the source pack has more
-     * than 30 stickers and was split into parts), and returns the id
-     * immediately so the caller can navigate to it. */
-    fun startImport(input: String, partIndex: Int = 0): String {
-        val packId = UUID.randomUUID().toString()
-        runOperation(packId) { packRepository.importAndConvert(packId, settings.value.serverUrl, input, partIndex) }
-        return packId
+    /** Kicks off the real fetch-and-convert flow for the given part (0-based;
+     * only relevant when the source pack has more than 30 stickers and was
+     * split into parts). If this exact pack/part was already imported,
+     * prompts to overwrite instead of silently creating a duplicate entry --
+     * see [duplicatePrompt] and [pendingNavigation]. */
+    fun startImport(input: String, partIndex: Int = 0) {
+        val shortName = packRepository.extractShortName(input)
+        startImportOrPromptOverwrite(shortName, partIndex) { packId ->
+            packRepository.importAndConvert(packId, settings.value.serverUrl, input, partIndex)
+        }
+    }
+
+    private fun startImportOrPromptOverwrite(
+        shortName: String,
+        partIndex: Int,
+        flowFactory: (packId: String) -> Flow<PackOperationProgress>,
+    ) {
+        val existing = packs.value.firstOrNull {
+            it.origin == PackOrigin.Imported && it.telegramSetName == shortName && it.importPartIndex == partIndex
+        }
+        if (existing == null) {
+            val packId = UUID.randomUUID().toString()
+            if (runOperation(packId) { flowFactory(packId) }) {
+                _pendingNavigation.value = packId
+            }
+            return
+        }
+        _duplicatePrompt.value = DuplicatePackPrompt(
+            packTitle = existing.title,
+            onConfirm = {
+                _duplicatePrompt.value = null
+                if (runOperation(existing.id) { flowFactory(existing.id) }) {
+                    _pendingNavigation.value = existing.id
+                }
+            },
+            onReject = { _duplicatePrompt.value = null },
+        )
     }
 
     fun createPack(items: List<PickedMediaItem>, title: String, shortName: String, onCreated: (String) -> Unit) {
@@ -275,7 +361,7 @@ class AppViewModel(
         }
     }
 
-    fun startPublish(packId: String, pushToTelegram: Boolean, addToWhatsapp: Boolean) {
+    fun startPublish(packId: String, pushToTelegram: Boolean, addToWhatsapp: Boolean): Boolean =
         runOperation(packId) {
             packRepository.publishPack(
                 packId,
@@ -285,7 +371,6 @@ class AppViewModel(
                 settings.value.telegramUserId,
             )
         }
-    }
 
     /** Pull-to-refresh on My Packs: re-checks every eligible imported pack
      * against Telegram and flags any that drifted. A no-op (but still
@@ -311,9 +396,9 @@ class AppViewModel(
      * under the same pack id, discarding any custom selection -- defensively
      * clears leftover import-preview/custom-selection state first, since
      * this reuses the same conversion flow/progress UI as a fresh import. */
-    fun requestPackUpdate(packId: String) {
+    fun requestPackUpdate(packId: String): Boolean {
         resetPreview()
-        runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.serverUrl) }
+        return runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.serverUrl) }
     }
 
     fun disableUpdatesForPack(packId: String) {
@@ -327,14 +412,63 @@ class AppViewModel(
     fun addToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent =
         packRepository.buildAddToWhatsappIntent(packId, packTitle, business)
 
-    private fun runOperation(packId: String, flowFactory: () -> kotlinx.coroutines.flow.Flow<PackOperationProgress>) {
-        if (_conversion.value.packId == packId && _conversion.value.isRunning) return
+    /** "Run in background": the operation already keeps running in
+     * [viewModelScope] regardless of which screen is visible -- this just
+     * opts the currently-running operation for [packId] into posting a
+     * system notification (progress, retry attempts, then success/failure)
+     * so the user doesn't have to keep the Conversion screen open to know
+     * how it went. */
+    fun runInBackground(packId: String, packTitle: String) {
+        val app = getApplication<Application>()
+        PackOperationNotifier.ensureChannel(app)
+        backgroundNotifiedPackId = packId
+        backgroundPackTitle = packTitle
+    }
+
+    private var backgroundNotifiedPackId: String? = null
+    private var backgroundPackTitle: String = ""
+
+    /** Only one pack may download/convert/publish at a time -- the server
+     * flood-limits concurrent Telegram requests, and letting a second
+     * operation silently cancel the first would orphan its progress. Returns
+     * false (and sets [busyMessage]) when another pack's operation is
+     * already running; the caller does nothing further in that case. */
+    private fun runOperation(packId: String, flowFactory: () -> kotlinx.coroutines.flow.Flow<PackOperationProgress>): Boolean {
+        if (_conversion.value.isRunning) {
+            if (_conversion.value.packId == packId) return true
+            _busyMessage.value = getApplication<Application>().getString(R.string.err_operation_already_running)
+            return false
+        }
 
         operationJob?.cancel()
         _conversion.value = ConversionUiState(packId = packId, stage = "Starting", isRunning = true)
         operationJob = viewModelScope.launch {
             flowFactory().collect { progress ->
                 _conversion.value = progress.toUiState(packId)
+                notifyBackgroundProgress(packId, progress)
+            }
+        }
+        return true
+    }
+
+    private fun notifyBackgroundProgress(packId: String, progress: PackOperationProgress) {
+        if (backgroundNotifiedPackId != packId) return
+        val app = getApplication<Application>()
+        when (progress) {
+            is PackOperationProgress.Progress -> PackOperationNotifier.showProgress(
+                app,
+                packId,
+                backgroundPackTitle,
+                progress.stage,
+                progress.fraction,
+            )
+            is PackOperationProgress.Complete -> {
+                PackOperationNotifier.showSuccess(app, packId, backgroundPackTitle, app.getString(R.string.conversion_ready_body))
+                backgroundNotifiedPackId = null
+            }
+            is PackOperationProgress.Failed -> {
+                PackOperationNotifier.showFailure(app, packId, backgroundPackTitle, progress.message)
+                backgroundNotifiedPackId = null
             }
         }
     }

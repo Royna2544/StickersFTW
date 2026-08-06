@@ -25,12 +25,14 @@ import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
+import com.royna.stickersftw.model.StickerGridItem
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramPushState
 import com.royna.stickersftw.network.RetrofitProvider
 import com.royna.stickersftw.network.TelegramStickersApi
 import com.royna.stickersftw.network.dto.StickerDto
 import com.royna.stickersftw.network.dto.StickerSetDto
+import com.royna.stickersftw.network.retryTransientErrors
 import com.royna.stickersftw.network.toApiErrorOrNull
 import com.royna.stickersftw.network.withRateLimitRetry
 import com.royna.stickersftw.whatsapp.WhatsAppContract
@@ -60,6 +62,18 @@ class StickerPackRepository(private val appContext: Context) {
 
     fun observePacks(): Flow<List<StickerPack>> =
         packDao.observePacksWithStickers().map { list -> list.map { it.toUiModel() } }
+
+    /** Every converted sticker in a pack, in order, for the read-only grid
+     * viewer -- unlike [StickerPack.previewStickerPaths], not truncated. */
+    fun observePackStickers(packId: String): Flow<List<StickerGridItem>> =
+        packDao.observePackWithStickers(packId).map { packWithStickers ->
+            packWithStickers?.stickers
+                ?.sortedBy { it.position }
+                ?.mapNotNull { sticker ->
+                    sticker.convertedWhatsappPath?.let { StickerGridItem(it, sticker.emojis) }
+                }
+                .orEmpty()
+        }
 
     // ---- Fetch (Telegram -> convert -> WhatsApp) --------------------------
 
@@ -206,6 +220,37 @@ class StickerPackRepository(private val appContext: Context) {
         packDao.setUpdateCheckEnabled(packId, enabled)
     }
 
+    sealed class ForceRefreshResult {
+        data object UpToDate : ForceRefreshResult()
+        data object UpdateAvailable : ForceRefreshResult()
+        data class Failed(val reason: String) : ForceRefreshResult()
+    }
+
+    /** User-triggered "refresh this pack now" -- unlike [checkForUpdates]'s
+     * cache-friendly sweep over every eligible pack, this always tells the
+     * server to bypass its cache and re-fetch this one pack from Telegram. */
+    suspend fun forceRefreshPack(packId: String, serverUrl: String): ForceRefreshResult {
+        val pack = packDao.getPack(packId)
+            ?: return ForceRefreshResult.Failed(appContext.getString(R.string.err_pack_not_found))
+        val setName = pack.telegramSetName
+            ?: return ForceRefreshResult.Failed(appContext.getString(R.string.err_no_linked_telegram_source))
+        val api = RetrofitProvider.apiFor(serverUrl)
+        val response = try {
+            retryTransientErrors { api.getSet(setName, force = true) }
+        } catch (e: Exception) {
+            return ForceRefreshResult.Failed(describeNetworkError(e))
+        }
+        response.toApiErrorOrNull()?.let { return ForceRefreshResult.Failed(it.userMessage) }
+        val dto = response.body() ?: return ForceRefreshResult.Failed(appContext.getString(R.string.err_empty_response))
+        val freshSignature = SourceSignature.compute(dto)
+        return if (pack.sourceSignature != null && freshSignature != pack.sourceSignature) {
+            packDao.setUpdateAvailable(packId, true)
+            ForceRefreshResult.UpdateAvailable
+        } else {
+            ForceRefreshResult.UpToDate
+        }
+    }
+
     /** Imports an arbitrary, hand-picked subset of the source pack's
      * stickers (order preserved) instead of a contiguous part -- backs the
      * custom sticker picker. */
@@ -228,7 +273,7 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
 
-        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, " (Custom)")
+        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
@@ -251,7 +296,11 @@ class StickerPackRepository(private val appContext: Context) {
         emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_reading_metadata), 0.05f))
         val api = RetrofitProvider.apiFor(serverUrl)
         val setResponse = try {
-            withRateLimitRetry { api.getSet(shortNameInput) }
+            retryTransientErrors(
+                onRetry = { attempt, max ->
+                    emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_retrying, attempt, max), 0.05f))
+                },
+            ) { withRateLimitRetry { api.getSet(shortNameInput) } }
         } catch (e: Exception) {
             emit(PackOperationProgress.Failed(describeNetworkError(e)))
             return null
@@ -344,7 +393,6 @@ class StickerPackRepository(private val appContext: Context) {
         val convertedDir = File(packDir, "converted")
 
         val total = stickerDtos.size
-        val sniffedTypes = mutableListOf<StickerMediaType>()
         val downloadedFiles = mutableListOf<Triple<String, File, StickerMediaType>>()
 
         for ((index, dto) in stickerDtos.withIndex()) {
@@ -355,7 +403,14 @@ class StickerPackRepository(private val appContext: Context) {
                 ),
             )
             val originalFile = File(originalDir, sanitizeFileName(dto.id))
-            val contentType = downloadSticker(api, setDto.name, dto.id, originalFile)
+            val contentType = downloadSticker(api, setDto.name, dto.id, originalFile) { attempt, max ->
+                emit(
+                    PackOperationProgress.Progress(
+                        appContext.getString(R.string.stage_retrying, attempt, max),
+                        0.05f + 0.40f * (index + 1) / total,
+                    ),
+                )
+            }
             if (contentType == null) {
                 updateStickerByRemoteId(packId, dto.id) {
                     it.copy(conversionStatus = "Failed", conversionError = appContext.getString(R.string.err_download_failed))
@@ -365,7 +420,6 @@ class StickerPackRepository(private val appContext: Context) {
             val type = StickerTypeClassifier.classify(contentType).let {
                 if (it == StickerMediaType.Unknown) StickerTypeClassifier.reclassifyUnknown(originalFile) else it
             }
-            sniffedTypes.add(type)
             downloadedFiles.add(Triple(dto.id, originalFile, type))
             updateStickerByRemoteId(packId, dto.id) {
                 it.copy(
@@ -383,9 +437,9 @@ class StickerPackRepository(private val appContext: Context) {
             return
         }
 
-        val packIsAnimated = PackConversionPlanner.classifyPackIsAnimated(sniffedTypes)
-
         var convertedCount = 0
+        var animatedCount = 0
+        var staticCount = 0
         var firstConvertedFile: File? = null
         var firstConvertedType: StickerMediaType? = null
 
@@ -399,16 +453,11 @@ class StickerPackRepository(private val appContext: Context) {
             )
             val outputFile = File(convertedDir, "${sanitizeFileName(remoteId)}.webp")
             when (
-                val result = StickerConversionPipeline.convertForWhatsapp(
-                    appContext,
-                    file,
-                    outputFile,
-                    type,
-                    packIsAnimated,
-                )
+                val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, outputFile, type)
             ) {
                 is StickerConvertResult.Success -> {
                     convertedCount++
+                    if (result.isAnimated) animatedCount++ else staticCount++
                     if (firstConvertedFile == null) {
                         firstConvertedFile = file
                         firstConvertedType = type
@@ -428,6 +477,9 @@ class StickerPackRepository(private val appContext: Context) {
                 }
             }
         }
+        // Derived from what conversion actually produced, not from the
+        // source's nominal format -- see StickerConversionPipeline.
+        val packIsAnimated = animatedCount >= staticCount && animatedCount > 0
 
         if (convertedCount == 0) {
             val message = appContext.getString(R.string.err_no_stickers_converted)
@@ -544,11 +596,9 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
 
-        val packIsAnimated = PackConversionPlanner.classifyPackIsAnimated(
-            localFiles.map { (sticker, _) -> if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static },
-        )
-
         var whatsappConvertedCount = 0
+        var animatedCount = 0
+        var staticCount = 0
         var firstConvertedFile: File? = null
         var firstConvertedType: StickerMediaType? = null
 
@@ -564,10 +614,11 @@ class StickerPackRepository(private val appContext: Context) {
                 val type = if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static
                 val output = File(packDir, "converted/${sticker.rowId}.webp")
                 when (
-                    val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, output, type, packIsAnimated)
+                    val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, output, type)
                 ) {
                     is StickerConvertResult.Success -> {
                         whatsappConvertedCount++
+                        if (result.isAnimated) animatedCount++ else staticCount++
                         if (firstConvertedFile == null) {
                             firstConvertedFile = file
                             firstConvertedType = type
@@ -582,9 +633,22 @@ class StickerPackRepository(private val appContext: Context) {
                 }
             }
         }
+        // Derived from what conversion actually produced when it ran (see
+        // StickerConversionPipeline); falls back to the picked media's own
+        // kind when this is a Telegram-only push with no WhatsApp step to
+        // observe an outcome from.
+        val packIsAnimated = if (whatsappConvertedCount > 0) {
+            animatedCount >= staticCount
+        } else {
+            PackConversionPlanner.classifyPackIsAnimated(
+                localFiles.map { (sticker, _) -> if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static },
+            )
+        }
 
         var telegramPushedFullName: String? = pack.telegramSetName
         var telegramPushWarning: String? = null
+        var telegramPushedCount = 0
+        var telegramFailedCount = 0
 
         if (pushToTelegram) {
             if (telegramUserId.isBlank()) {
@@ -593,6 +657,8 @@ class StickerPackRepository(private val appContext: Context) {
                 val shortName = pack.pushShortName
                 if (shortName == null) {
                     telegramPushWarning = appContext.getString(R.string.err_missing_short_name)
+                } else if (checkUserStartedChat(telegramUserId, serverUrl) == false) {
+                    telegramPushWarning = appContext.getString(R.string.err_user_not_started_bot)
                 } else {
                     val api = RetrofitProvider.apiFor(serverUrl)
                     for ((index, entry) in localFiles.withIndex()) {
@@ -603,10 +669,19 @@ class StickerPackRepository(private val appContext: Context) {
                                 0.55f + 0.35f * (index + 1) / localFiles.size,
                             ),
                         )
+                        if (sticker.convertedTelegramPath != null) {
+                            // Already made it to Telegram on a prior push attempt -- retrying
+                            // must not re-upload it (that would create a duplicate sticker
+                            // in the Telegram set).
+                            telegramPushedCount++
+                            continue
+                        }
                         val telegramOutput = File(packDir, "telegram/${sticker.rowId}.bin")
                         val format = if (sticker.isVideo) "video" else "static"
                         when (val convertResult = StickerConversionPipeline.convertForTelegram(file, telegramOutput, sticker.isVideo)) {
                             is StickerConvertResult.Failed -> {
+                                telegramFailedCount++
+                                telegramPushWarning = convertResult.reason
                                 updateStickerByRowId(sticker.rowId) {
                                     it.copy(conversionStatus = "Failed", conversionError = convertResult.reason)
                                 }
@@ -621,15 +696,25 @@ class StickerPackRepository(private val appContext: Context) {
                                     file = File(convertResult.convertedPath),
                                     format = format,
                                     emojis = emojiList,
+                                    onRetry = { attempt, max ->
+                                        emit(
+                                            PackOperationProgress.Progress(
+                                                appContext.getString(R.string.stage_retrying, attempt, max),
+                                                0.55f + 0.35f * (index + 1) / localFiles.size,
+                                            ),
+                                        )
+                                    },
                                 )
                                 when (pushResult) {
                                     is PushOneResult.Success -> {
                                         telegramPushedFullName = pushResult.fullName
+                                        telegramPushedCount++
                                         updateStickerByRowId(sticker.rowId) {
                                             it.copy(convertedTelegramPath = convertResult.convertedPath)
                                         }
                                     }
                                     is PushOneResult.Failed -> {
+                                        telegramFailedCount++
                                         telegramPushWarning = pushResult.reason
                                         updateStickerByRowId(sticker.rowId) {
                                             it.copy(conversionStatus = "Failed", conversionError = pushResult.reason)
@@ -641,6 +726,14 @@ class StickerPackRepository(private val appContext: Context) {
                     }
                     telegramPushedFullName?.let {
                         packDao.setTelegramSetName(packId, it, System.currentTimeMillis())
+                    }
+                    if (telegramFailedCount > 0 && telegramPushedCount > 0) {
+                        telegramPushWarning = appContext.getString(
+                            R.string.warn_telegram_partial_push,
+                            telegramPushedCount,
+                            localFiles.size,
+                            telegramPushWarning.orEmpty(),
+                        )
                     }
                 }
             }
@@ -682,6 +775,32 @@ class StickerPackRepository(private val appContext: Context) {
     suspend fun deletePack(id: String) {
         packDao.delete(id)
         File(appContext.filesDir, "packs/$id").deleteRecursively()
+    }
+
+    sealed class DeleteTelegramResult {
+        data object Success : DeleteTelegramResult()
+        data class Failed(val reason: String) : DeleteTelegramResult()
+    }
+
+    /** Deletes the pack's Telegram sticker set (if it has one) and then its
+     * local copy. If the Telegram-side deletion fails, the local pack is
+     * left untouched so the user doesn't lose their only remaining copy. */
+    suspend fun deletePackAndTelegramSet(id: String, serverUrl: String): DeleteTelegramResult {
+        val pack = packDao.getPack(id) ?: return DeleteTelegramResult.Failed(appContext.getString(R.string.err_pack_not_found))
+        val fullName = pack.telegramSetName
+        if (fullName != null) {
+            try {
+                val api = RetrofitProvider.apiFor(serverUrl)
+                val response = retryTransientErrors { api.deleteStickerSet(fullName) }
+                response.toApiErrorOrNull()?.let {
+                    return DeleteTelegramResult.Failed(it.userMessage)
+                }
+            } catch (e: Exception) {
+                return DeleteTelegramResult.Failed(describeNetworkError(e))
+            }
+        }
+        deletePack(id)
+        return DeleteTelegramResult.Success
     }
 
     suspend fun refreshWhatsappAdded(id: String) {
@@ -727,10 +846,17 @@ class StickerPackRepository(private val appContext: Context) {
                 .distinct()
                 .take(8),
             whatsappAdded = pack.whatsappAdded,
-            telegramPushState = pack.telegramSetName
-                ?.let { TelegramPushState.Pushed(it) }
-                ?: TelegramPushState.NotPushed,
+            telegramPushState = pack.telegramSetName?.let { fullName ->
+                val pushedCount = sortedStickers.count { it.convertedTelegramPath != null }
+                if (sortedStickers.isNotEmpty() && pushedCount < sortedStickers.size) {
+                    TelegramPushState.Partial(fullName, pushedCount, sortedStickers.size)
+                } else {
+                    TelegramPushState.Pushed(fullName)
+                }
+            } ?: TelegramPushState.NotPushed,
             updateAvailable = pack.updateAvailable,
+            telegramSetName = if (pack.origin == PackOrigin.Imported.name) pack.telegramSetName else null,
+            importPartIndex = pack.importPartIndex,
         )
     }
 
@@ -748,11 +874,18 @@ class StickerPackRepository(private val appContext: Context) {
         }
     }
 
-    private fun extractShortName(input: String): String =
+    fun extractShortName(input: String): String =
         input.trim().trimEnd('/').substringAfterLast('/')
 
     private fun sanitizeFileName(raw: String): String =
         raw.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifBlank { "sticker" }
+
+    companion object {
+        /** Sentinel [PackEntity.importPartIndex] for a hand-picked custom
+         * selection, distinct from part index 0 (a real "part 1" or a
+         * whole, unsplit pack) -- see [StickerPack.importPartIndex]. */
+        const val CUSTOM_PART_INDEX = -1
+    }
 
     private fun describeNetworkError(e: Exception): String = when (e) {
         is java.io.IOException -> appContext.getString(R.string.err_could_not_reach_server)
@@ -764,8 +897,9 @@ class StickerPackRepository(private val appContext: Context) {
         setName: String,
         stickerId: String,
         output: File,
+        onRetry: suspend (attempt: Int, maxAttempts: Int) -> Unit = { _, _ -> },
     ): String? = try {
-        val response = withRateLimitRetry { api.getSticker(setName, stickerId) }
+        val response = retryTransientErrors(onRetry = onRetry) { withRateLimitRetry { api.getSticker(setName, stickerId) } }
         if (!response.isSuccessful) {
             null
         } else {
@@ -832,6 +966,19 @@ class StickerPackRepository(private val appContext: Context) {
         stickerDao.upsert(transform(current))
     }
 
+    /** Returns false only when the server positively confirms the user hasn't
+     * started a chat with the bot; true when confirmed started; null when the
+     * check itself couldn't be completed (network/server error) -- callers
+     * should treat null as "proceed anyway" so a flaky verify call never
+     * blocks a push that might otherwise succeed. */
+    private suspend fun checkUserStartedChat(userId: String, serverUrl: String): Boolean? = try {
+        val api = RetrofitProvider.apiFor(serverUrl)
+        val response = retryTransientErrors { api.verifyUserStartedChat(userId) }
+        if (response.isSuccessful) response.body()?.started else null
+    } catch (_: Exception) {
+        null
+    }
+
     private sealed class PushOneResult {
         data class Success(val fullName: String) : PushOneResult()
         data class Failed(val reason: String) : PushOneResult()
@@ -845,19 +992,22 @@ class StickerPackRepository(private val appContext: Context) {
         file: File,
         format: String,
         emojis: List<String>,
+        onRetry: suspend (attempt: Int, maxAttempts: Int) -> Unit = { _, _ -> },
     ): PushOneResult = try {
         val mediaType = if (format == "video") "video/webm".toMediaType() else "image/webp".toMediaType()
         val stickerPart = MultipartBody.Part.createFormData("sticker", file.name, file.asRequestBody(mediaType))
         val plainText = "text/plain".toMediaType()
-        val response = withRateLimitRetry {
-            api.pushSticker(
-                shortName = shortName,
-                userId = userId.toRequestBody(plainText),
-                title = title?.toRequestBody(plainText),
-                format = format.toRequestBody(plainText),
-                emojis = emojis.joinToString(",").toRequestBody(plainText),
-                sticker = stickerPart,
-            )
+        val response = retryTransientErrors(onRetry = onRetry) {
+            withRateLimitRetry {
+                api.pushSticker(
+                    shortName = shortName,
+                    userId = userId.toRequestBody(plainText),
+                    title = title?.toRequestBody(plainText),
+                    format = format.toRequestBody(plainText),
+                    emojis = emojis.joinToString(",").toRequestBody(plainText),
+                    sticker = stickerPart,
+                )
+            }
         }
         val error = response.toApiErrorOrNull()
         if (error != null) {

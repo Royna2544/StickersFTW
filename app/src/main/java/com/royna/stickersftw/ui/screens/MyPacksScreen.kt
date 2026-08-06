@@ -25,10 +25,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
+import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.PackListCard
 import com.royna.stickersftw.ui.components.PageHeader
@@ -45,6 +45,8 @@ fun MyPacksScreen(
     onRequestUpdate: (String) -> Unit,
     onDisableUpdates: (String) -> Unit,
     contentPadding: PaddingValues,
+    activeConversion: ConversionUiState = ConversionUiState(),
+    onResumeConversion: (String) -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
 
@@ -53,6 +55,8 @@ fun MyPacksScreen(
             pack.title.contains(query, ignoreCase = true) ||
             pack.author.contains(query, ignoreCase = true)
     }
+    val animatedCount = packs.count { it.isAnimated }
+    val staticCount = packs.size - animatedCount
 
     Column(
         modifier = Modifier
@@ -61,8 +65,7 @@ fun MyPacksScreen(
             .padding(horizontal = 22.dp),
     ) {
         PageHeader(
-            title = stringResource(R.string.my_packs_title),
-            subtitle = pluralStringResource(R.plurals.sticker_packs_count, packs.size, packs.size),
+            title = stringResource(R.string.my_packs_title_with_counts, animatedCount, staticCount),
             modifier = Modifier.padding(top = 22.dp, bottom = 18.dp),
         )
         OutlinedTextField(
@@ -99,13 +102,15 @@ fun MyPacksScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(filteredPacks, key = { it.id }) { pack ->
+                    val isActive = activeConversion.isRunning && activeConversion.packId == pack.id
                     PackListCard(
                         pack = pack,
-                        onClick = { onOpenPack(pack.id) },
+                        onClick = { if (isActive) onResumeConversion(pack.id) else onOpenPack(pack.id) },
                         onTogglePinned = { onTogglePinned(pack.id) },
                         onDelete = { onDeletePack(pack.id) },
                         onRequestUpdate = { onRequestUpdate(pack.id) },
                         onDisableUpdates = { onDisableUpdates(pack.id) },
+                        activeProgress = if (isActive) activeConversion.progress else null,
                     )
                 }
             }

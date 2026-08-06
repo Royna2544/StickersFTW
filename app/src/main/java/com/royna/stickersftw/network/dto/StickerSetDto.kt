@@ -18,3 +18,7 @@ data class StickerSetDto(
 data class BotInfoDto(
     val username: String,
 )
+
+data class UserVerifyDto(
+    val started: Boolean,
+)

@@ -23,13 +23,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Workspaces
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -37,7 +41,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,9 +60,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.PackStatus
@@ -346,44 +355,69 @@ fun PackGridCard(
     }
 }
 
+/** Speed-dial FAB replacing the old pinned Import/Create cards: collapsed,
+ * it's a single "+" bubble; expanded, it becomes an "X" with two smaller
+ * labeled bubbles (Import, Create) stacked above it. Shared between the
+ * Convert and My Packs tabs. */
 @Composable
-fun ImportPackCard(
-    onClick: () -> Unit,
+fun ExpandableActionFab(
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onImport: () -> Unit,
+    onCreate: () -> Unit,
     modifier: Modifier = Modifier,
-    label: String = stringResource(R.string.import_pack_card_label),
-    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.Add,
 ) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(272.dp)
-            .clip(RoundedCornerShape(28.dp))
-            .border(
-                width = 2.dp,
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-                shape = RoundedCornerShape(28.dp),
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.padding(14.dp).size(30.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+        androidx.compose.animation.AnimatedVisibility(visible = expanded) {
+            Column(horizontalAlignment = Alignment.End) {
+                LabeledMiniFab(
+                    label = stringResource(R.string.create_pack_label),
+                    icon = Icons.Rounded.AddPhotoAlternate,
+                    onClick = { onToggle(); onCreate() },
                 )
+                Spacer(Modifier.height(14.dp))
+                LabeledMiniFab(
+                    label = stringResource(R.string.import_pack_card_label),
+                    icon = Icons.Rounded.Download,
+                    onClick = { onToggle(); onImport() },
+                )
+                Spacer(Modifier.height(14.dp))
             }
-            Spacer(Modifier.height(12.dp))
+        }
+        androidx.compose.material3.FloatingActionButton(onClick = onToggle) {
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.Close else Icons.Rounded.Add,
+                contentDescription = stringResource(
+                    if (expanded) R.string.cd_collapse_actions else R.string.cd_expand_actions,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LabeledMiniFab(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+        ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             )
+        }
+        Spacer(Modifier.width(10.dp))
+        androidx.compose.material3.SmallFloatingActionButton(onClick = onClick) {
+            Icon(imageVector = icon, contentDescription = null)
         }
     }
 }
@@ -396,6 +430,7 @@ fun PackListCard(
     onDelete: () -> Unit,
     onRequestUpdate: () -> Unit = {},
     onDisableUpdates: () -> Unit = {},
+    activeProgress: Float? = null,
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
@@ -459,8 +494,16 @@ fun PackListCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.height(9.dp))
-                StickerPreviewImagesRow(pack.previewStickerPaths, max = 6)
+                if (activeProgress != null) {
+                    Spacer(Modifier.height(9.dp))
+                    LinearProgressIndicator(
+                        progress = { activeProgress },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    Spacer(Modifier.height(9.dp))
+                    StickerPreviewImagesRow(pack.previewStickerPaths, max = 6)
+                }
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(
@@ -552,6 +595,120 @@ private fun PackUpdateDialog(
             }
         },
     )
+}
+
+/** Full-screen (not a small card dialog) since overwriting silently
+ * destroys the existing pack's stickers/files -- this warrants more
+ * visual weight than importing a brand-new pack does. */
+@Composable
+fun DuplicatePackOverwriteDialog(
+    packTitle: String,
+    onOverwrite: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onCancel,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.duplicate_pack_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.duplicate_pack_message, packTitle),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(32.dp))
+                Button(
+                    onClick = onOverwrite,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_overwrite))
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        }
+    }
+}
+
+/** Full-screen for the same reason as [DuplicatePackOverwriteDialog] --
+ * this permanently deletes the Telegram sticker set (not just the local
+ * copy), which cannot be undone. */
+@Composable
+fun DeleteTelegramPackConfirmDialog(
+    packTitle: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onCancel,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.delete_telegram_pack_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.delete_telegram_pack_message, packTitle),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(32.dp))
+                Button(
+                    onClick = onConfirm,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_delete_from_telegram_and_local))
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onCancel,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        }
+    }
 }
 
 @Composable

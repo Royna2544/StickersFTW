@@ -5,32 +5,30 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
 
-/** Orchestrates per-sticker conversion for both destinations. Outlier
- * normalization (a sticker whose own type disagrees with the pack's overall
- * classification) is handled inline here: a stray static image inside an
- * animated pack becomes a trivial 1-frame animation; a stray animated/video
- * sticker inside a static pack is reduced to its first frame. */
+/** Orchestrates per-sticker conversion for both destinations. */
 object StickerConversionPipeline {
+    /** Whether a sticker actually ends up animated is decided here, per
+     * sticker, by how many usable frames extraction genuinely produces --
+     * never by the source's nominal format. Telegram video stickers are
+     * short, sparsely-keyframed clips that some devices can only decode a
+     * single (keyframe) frame from via the SDK's convenience extraction
+     * APIs; encoding that single frame as a 1-frame "animated" WebP while
+     * declaring the pack animated is exactly the mismatch that makes
+     * WhatsApp reject the whole pack, so a single-frame result is encoded
+     * as a plain static sticker instead. */
     suspend fun convertForWhatsapp(
         context: Context,
         input: File,
         output: File,
         stickerType: StickerMediaType,
-        packIsAnimated: Boolean,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
-        val outcome = if (!packIsAnimated) {
-            val frame = firstFrameFor(input, stickerType, SizeBudget.STICKER_PX)
-                ?: return StickerConvertResult.Failed("Could not decode a usable frame.")
-            StaticStickerConverter.compressWithBudget(
-                BitmapPrep.centerCropSquareAndScale(frame, SizeBudget.STICKER_PX),
-                output,
-                SizeBudget.STATIC_MAX_BYTES,
-            )
-        } else {
-            val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX)
-                ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
+        val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX)
+            ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
+
+        val isAnimated = frames.size > 1
+        val outcome = if (isAnimated) {
             WebpAnimationEncoder.encode(
                 context,
                 frames,
@@ -38,9 +36,11 @@ object StickerConversionPipeline {
                 output,
                 SizeBudget.ANIMATED_MAX_BYTES,
             )
+        } else {
+            StaticStickerConverter.compressWithBudget(frames.first().bitmap, output, SizeBudget.STATIC_MAX_BYTES)
         }
 
-        return outcome.toResult(output)
+        return outcome.toResult(output, isAnimated)
     }
 
     suspend fun buildTrayIcon(
@@ -109,8 +109,8 @@ object StickerConversionPipeline {
         }
     }
 
-    private fun ConversionOutcome.toResult(output: File): StickerConvertResult = when (this) {
-        is ConversionOutcome.Success -> StickerConvertResult.Success(output.absolutePath, warning)
+    private fun ConversionOutcome.toResult(output: File, isAnimated: Boolean = false): StickerConvertResult = when (this) {
+        is ConversionOutcome.Success -> StickerConvertResult.Success(output.absolutePath, warning, isAnimated)
         is ConversionOutcome.Failed -> StickerConvertResult.Failed(reason)
     }
 }

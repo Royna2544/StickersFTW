@@ -1,5 +1,10 @@
 package com.royna.stickersftw
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Inventory2
@@ -13,19 +18,29 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.ui.AppViewModel
 import com.royna.stickersftw.ui.ImportPreviewUiState
+import com.royna.stickersftw.ui.components.DuplicatePackOverwriteDialog
+import com.royna.stickersftw.ui.components.ExpandableActionFab
 import com.royna.stickersftw.ui.screens.ConversionScreen
 import com.royna.stickersftw.ui.screens.ConvertScreen
 import com.royna.stickersftw.ui.screens.CreatePackScreen
@@ -34,6 +49,7 @@ import com.royna.stickersftw.ui.screens.ImportPackScreen
 import com.royna.stickersftw.ui.screens.MyPacksScreen
 import com.royna.stickersftw.ui.screens.PackDetailScreen
 import com.royna.stickersftw.ui.screens.SettingsScreen
+import com.royna.stickersftw.ui.screens.StickerGridScreen
 
 private object Routes {
     const val Convert = "convert"
@@ -44,9 +60,11 @@ private object Routes {
     const val Create = "create"
     const val Detail = "pack/{packId}"
     const val Conversion = "conversion/{packId}"
+    const val Grid = "pack/{packId}/grid"
 
     fun detail(packId: String) = "pack/$packId"
     fun conversion(packId: String) = "conversion/$packId"
+    fun grid(packId: String) = "pack/$packId/grid"
 }
 
 private data class MainDestination(
@@ -81,8 +99,28 @@ private fun preferBusinessWhatsapp(installedApps: InstalledAppsState): Boolean =
     !installedApps.whatsappInstalled && installedApps.whatsappBusinessInstalled
 
 @Composable
-fun StickersFtwApp(viewModel: AppViewModel) {
+fun StickersFtwApp(
+    viewModel: AppViewModel,
+    pendingPackId: String? = null,
+    onPendingPackIdConsumed: () -> Unit = {},
+) {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* Denied is fine -- the background operation still runs, it just
+          won't be able to post progress notifications (PackOperationNotifier
+          already checks the permission before every notify() call). */ }
+    val requestNotificationPermissionIfNeeded = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    val forceRefreshUpToDateMessage = stringResource(R.string.force_refresh_up_to_date)
+    val forceRefreshUpdateFoundMessage = stringResource(R.string.force_refresh_update_found)
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val packs by viewModel.packs.collectAsStateWithLifecycle()
     val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
@@ -90,15 +128,66 @@ fun StickersFtwApp(viewModel: AppViewModel) {
     val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
     val customSelection by viewModel.customSelection.collectAsStateWithLifecycle()
     val botUsername by viewModel.botUsername.collectAsStateWithLifecycle()
+    val pendingNavigation by viewModel.pendingNavigation.collectAsStateWithLifecycle()
+    val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
+    val busyMessage by viewModel.busyMessage.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = mainDestinations.any { it.route == currentRoute }
+    val showActionFab = currentRoute == Routes.Convert || currentRoute == Routes.Packs
+    var fabExpanded by rememberSaveable { mutableStateOf(false) }
 
     val whatsappAvailable = installedApps.whatsappInstalled || installedApps.whatsappBusinessInstalled
     val useBusinessWhatsapp = preferBusinessWhatsapp(installedApps)
 
+    LaunchedEffect(currentRoute) { fabExpanded = false }
+
+    // Reopens straight onto the pack's Conversion screen when the user taps
+    // a "Run in background" notification -- that screen already renders
+    // whichever of progress/success/failure is current, so no separate
+    // per-state routing is needed.
+    LaunchedEffect(pendingPackId) {
+        if (pendingPackId != null) {
+            navController.navigate(Routes.conversion(pendingPackId)) {
+                launchSingleTop = true
+            }
+            onPendingPackIdConsumed()
+        }
+    }
+
+    LaunchedEffect(busyMessage) {
+        if (busyMessage != null) {
+            android.widget.Toast.makeText(context, busyMessage, android.widget.Toast.LENGTH_SHORT).show()
+            viewModel.consumeBusyMessage()
+        }
+    }
+
+    // Fires once an import/update actually starts running (immediately for
+    // a fresh pack, or after the user answers "Overwrite?" for a duplicate)
+    // -- can't navigate at the call site since a duplicate has to wait on
+    // that answer first.
+    LaunchedEffect(pendingNavigation) {
+        val packId = pendingNavigation
+        if (packId != null) {
+            navController.navigate(Routes.conversion(packId)) {
+                popUpTo(Routes.Import) { inclusive = true }
+            }
+            viewModel.consumePendingNavigation()
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        floatingActionButton = {
+            if (showActionFab) {
+                ExpandableActionFab(
+                    expanded = fabExpanded,
+                    onToggle = { fabExpanded = !fabExpanded },
+                    onImport = { navController.navigate(Routes.Import) },
+                    onCreate = { navController.navigate(Routes.Create) },
+                )
+            }
+        },
         bottomBar = {
             if (showBottomBar) {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -132,8 +221,6 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     installedApps = installedApps,
                     packs = packs,
                     onOpenPack = { navController.navigate(Routes.detail(it)) },
-                    onImportPack = { navController.navigate(Routes.Import) },
-                    onCreatePack = { navController.navigate(Routes.Create) },
                     onSeeAll = { navController.navigate(Routes.Packs) },
                     contentPadding = scaffoldPadding,
                 )
@@ -148,11 +235,14 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     isRefreshing = isRefreshingPacks,
                     onRefresh = viewModel::refreshMyPacks,
                     onRequestUpdate = { packId ->
-                        viewModel.requestPackUpdate(packId)
-                        navController.navigate(Routes.conversion(packId))
+                        if (viewModel.requestPackUpdate(packId)) {
+                            navController.navigate(Routes.conversion(packId))
+                        }
                     },
                     onDisableUpdates = viewModel::disableUpdatesForPack,
                     contentPadding = scaffoldPadding,
+                    activeConversion = conversion,
+                    onResumeConversion = { navController.navigate(Routes.conversion(it)) },
                 )
             }
             composable(Routes.Settings) {
@@ -173,12 +263,7 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     onLoadPreview = viewModel::loadPreview,
                     onResetPreview = viewModel::resetPreview,
                     onBack = { navController.popBackStack() },
-                    onImport = { input, partIndex ->
-                        val id = viewModel.startImport(input, partIndex)
-                        navController.navigate(Routes.conversion(id)) {
-                            popUpTo(Routes.Import) { inclusive = true }
-                        }
-                    },
+                    onImport = { input, partIndex -> viewModel.startImport(input, partIndex) },
                     onPickCustom = {
                         viewModel.beginCustomSelection()
                         navController.navigate(Routes.ImportCustom)
@@ -196,22 +281,19 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     onToggle = viewModel::toggleCustomSticker,
                     onSetAll = viewModel::setCustomSelectionAll,
                     onBack = { navController.popBackStack() },
-                    onDownload = {
-                        val id = viewModel.startImportCustom()
-                        navController.navigate(Routes.conversion(id)) {
-                            popUpTo(Routes.Import) { inclusive = true }
-                        }
-                    },
+                    onDownload = { viewModel.startImportCustom() },
                 )
             }
             composable(Routes.Create) {
                 CreatePackScreen(
                     onBack = { navController.popBackStack() },
+                    botUsername = botUsername,
                     onPublish = { items, title, shortName, pushToTelegram, addToWhatsapp ->
                         viewModel.createPack(items, title, shortName) { packId ->
-                            viewModel.startPublish(packId, pushToTelegram, addToWhatsapp)
-                            navController.navigate(Routes.conversion(packId)) {
-                                popUpTo(Routes.Create) { inclusive = true }
+                            if (viewModel.startPublish(packId, pushToTelegram, addToWhatsapp)) {
+                                navController.navigate(Routes.conversion(packId)) {
+                                    popUpTo(Routes.Create) { inclusive = true }
+                                }
                             }
                         }
                     },
@@ -235,9 +317,41 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     onWhatsappResult = { pack?.let { viewModel.refreshWhatsappAdded(it.id) } },
                     onRefreshWhatsapp = viewModel::refreshWhatsappAdded,
                     onPushToTelegram = { packId ->
-                        viewModel.startPublish(packId, pushToTelegram = true, addToWhatsapp = false)
-                        navController.navigate(Routes.conversion(packId))
+                        if (viewModel.startPublish(packId, pushToTelegram = true, addToWhatsapp = false)) {
+                            navController.navigate(Routes.conversion(packId))
+                        }
                     },
+                    onDeleteFromTelegram = { packId, onDone ->
+                        viewModel.deletePackAndTelegramSet(packId) { result ->
+                            when (result) {
+                                is StickerPackRepository.DeleteTelegramResult.Success -> onDone(true, null)
+                                is StickerPackRepository.DeleteTelegramResult.Failed -> onDone(false, result.reason)
+                            }
+                        }
+                    },
+                    onForceRefreshFromTelegram = { packId, onDone ->
+                        viewModel.forceRefreshPack(packId) { result ->
+                            onDone(
+                                when (result) {
+                                    is StickerPackRepository.ForceRefreshResult.UpToDate -> forceRefreshUpToDateMessage
+                                    is StickerPackRepository.ForceRefreshResult.UpdateAvailable -> forceRefreshUpdateFoundMessage
+                                    is StickerPackRepository.ForceRefreshResult.Failed -> result.reason
+                                },
+                            )
+                        }
+                    },
+                    onViewAllStickers = { navController.navigate(Routes.grid(it)) },
+                )
+            }
+            composable(Routes.Grid) { entry ->
+                val id = entry.arguments?.getString("packId").orEmpty()
+                val pack = packs.firstOrNull { it.id == id }
+                val stickers by remember(id) { viewModel.observePackStickers(id) }
+                    .collectAsStateWithLifecycle(initialValue = emptyList())
+                StickerGridScreen(
+                    packTitle = pack?.title.orEmpty(),
+                    stickers = stickers,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.Conversion) { entry ->
@@ -266,8 +380,20 @@ fun StickersFtwApp(viewModel: AppViewModel) {
                     onWhatsappResult = { pack?.let { viewModel.refreshWhatsappAdded(it.id) } },
                     showConvertOtherParts = showConvertOtherParts,
                     onConvertOtherParts = { navController.navigate(Routes.Import) },
+                    onRunInBackground = {
+                        requestNotificationPermissionIfNeeded()
+                        pack?.let { viewModel.runInBackground(it.id, it.title) }
+                    },
                 )
             }
         }
+    }
+
+    duplicatePrompt?.let { prompt ->
+        DuplicatePackOverwriteDialog(
+            packTitle = prompt.packTitle,
+            onOverwrite = prompt.onConfirm,
+            onCancel = prompt.onReject,
+        )
     }
 }

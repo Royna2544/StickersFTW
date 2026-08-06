@@ -51,6 +51,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
+import com.royna.stickersftw.data.ShortNameValidator
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 
@@ -58,6 +59,7 @@ import com.royna.stickersftw.model.PickedMediaKind
 @Composable
 fun CreatePackScreen(
     onBack: () -> Unit,
+    botUsername: String? = null,
     onPublish: (
         items: List<PickedMediaItem>,
         title: String,
@@ -83,9 +85,9 @@ fun CreatePackScreen(
         }
     }
 
-    val shortNameValid = shortName.isNotBlank() &&
-        shortName.first().isLetter() &&
-        shortName.all { it.isLetterOrDigit() || it == '_' }
+    val shortNameResult = if (shortName.isBlank()) null else ShortNameValidator.validate(shortName, botUsername)
+    val normalizedShortName = (shortNameResult as? ShortNameValidator.Result.Valid)?.baseName
+    val shortNameValid = normalizedShortName != null
     val canPublish = mediaItems.size >= 3 && title.isNotBlank() && shortNameValid && (pushToTelegram || addToWhatsapp)
 
     Scaffold(
@@ -193,13 +195,13 @@ fun CreatePackScreen(
                 label = { Text(stringResource(R.string.create_pack_short_name_label)) },
                 supportingText = {
                     Text(
-                        stringResource(
-                            if (shortName.isBlank() || shortNameValid) {
-                                R.string.create_pack_short_name_hint_valid
-                            } else {
-                                R.string.create_pack_short_name_hint_invalid
-                            },
-                        ),
+                        when (val result = shortNameResult) {
+                            null, is ShortNameValidator.Result.Valid -> stringResource(R.string.create_pack_short_name_hint_valid)
+                            is ShortNameValidator.Result.WrongBotSuffix ->
+                                stringResource(R.string.create_pack_short_name_hint_wrong_bot, result.suffixBot)
+                            is ShortNameValidator.Result.InvalidFormat ->
+                                stringResource(R.string.create_pack_short_name_hint_invalid)
+                        },
                     )
                 },
                 singleLine = true,
@@ -216,7 +218,11 @@ fun CreatePackScreen(
             }
 
             Button(
-                onClick = { onPublish(mediaItems.toList(), title.trim(), shortName.trim(), pushToTelegram, addToWhatsapp) },
+                onClick = {
+                    normalizedShortName?.let {
+                        onPublish(mediaItems.toList(), title.trim(), it, pushToTelegram, addToWhatsapp)
+                    }
+                },
                 enabled = canPublish,
                 modifier = Modifier.fillMaxWidth(),
             ) {

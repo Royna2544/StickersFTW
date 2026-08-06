@@ -22,6 +22,8 @@
     <string name="action_see_all">See all</string>
     <string name="import_pack_card_label">Import Pack</string>
     <string name="create_pack_label">Create Pack</string>
+    <string name="cd_expand_actions">Import or create a pack</string>
+    <string name="cd_collapse_actions">Close</string>
 
     <!-- Service status panel -->
     <string name="status_server_title">Server</string>
@@ -42,13 +44,18 @@
     <string name="pack_status_failed">Failed</string>
 
     <!-- My Packs screen -->
-    <string name="my_packs_title">My Packs</string>
+    <string name="my_packs_title_with_counts">My Packs (animated: %1$d, static: %2$d)</string>
     <string name="search_packs_placeholder">Search packs…</string>
     <string name="cd_pinned">Pinned</string>
     <string name="cd_pack_menu">Pack menu</string>
     <string name="action_pin">Pin</string>
     <string name="action_unpin">Unpin</string>
     <string name="action_delete">Delete</string>
+
+    <!-- Duplicate pack overwrite prompt -->
+    <string name="duplicate_pack_title">Pack already imported</string>
+    <string name="duplicate_pack_message">\"%1$s\" is already in My Packs. Overwrite it with this import?</string>
+    <string name="action_overwrite">Overwrite</string>
 
     <!-- Update dialog -->
     <string name="update_dialog_title">Update available</string>
@@ -117,20 +124,30 @@
     <string name="create_pack_short_name_label">Short name (for Telegram)</string>
     <string name="create_pack_short_name_hint_valid">Letters, digits and underscores; must start with a letter.</string>
     <string name="create_pack_short_name_hint_invalid">Must start with a letter and contain only letters, digits and underscores.</string>
+    <string name="create_pack_short_name_hint_wrong_bot">This name is suffixed for a different bot (@%1$s). Remove the \"_by_…\" part.</string>
     <string name="create_pack_publish_to">Publish to</string>
     <string name="action_create_and_publish">Create and publish</string>
     <string name="create_pack_min_items_warning">Pick at least 3 items -- both Telegram and WhatsApp require a 3-sticker minimum.</string>
 
     <!-- Pack detail screen -->
-    <string name="pack_detail_title_fallback">Pack</string>
+    <string name="pack_detail_view_title">View Saved Pack</string>
     <string name="cd_pin_pack">Pin pack</string>
+    <string name="cd_force_refresh">Refresh from Telegram</string>
+    <string name="force_refresh_up_to_date">Already up to date.</string>
+    <string name="force_refresh_update_found">This pack changed on Telegram -- an update is available.</string>
     <string name="pack_detail_not_found">Pack not found</string>
     <string name="pack_detail_preview">Preview</string>
     <string name="pack_detail_no_stickers">No converted stickers yet.</string>
+    <string name="action_view_all_stickers">  View all stickers</string>
     <string name="action_push_to_telegram">  Push to Telegram</string>
+    <string name="action_finish_push_to_telegram">  Finish pushing to Telegram</string>
     <string name="action_delete_local_pack">  Delete local pack</string>
+    <string name="action_delete_from_telegram_and_local">  Delete from Telegram and local</string>
+    <string name="delete_telegram_pack_title">Delete from Telegram?</string>
+    <string name="delete_telegram_pack_message">\"%1$s\" will be permanently deleted from Telegram, along with its local copy. This can\'t be undone.</string>
     <string name="badge_added_to_whatsapp">Added to WhatsApp</string>
     <string name="badge_on_telegram">On Telegram</string>
+    <string name="badge_on_telegram_partial">On Telegram (%1$d/%2$d)</string>
     <string name="pack_detail_animated_suffix"> · animated</string>
 
     <!-- Custom sticker picker screen -->
@@ -160,10 +177,13 @@
     <string name="err_could_not_read_sticker_media">Could not read picked media.</string>
     <string name="err_missing_short_name">Missing pack short name.</string>
     <string name="err_set_telegram_user_id">Set your Telegram user ID in Settings before pushing to Telegram.</string>
+    <string name="err_user_not_started_bot">This Telegram user hasn\'t started a chat with the bot yet. Open Telegram, message the bot, and send /start, then try again.</string>
     <string name="err_nothing_published">Nothing was published.</string>
+    <string name="warn_telegram_partial_push">Only %1$d of %2$d stickers were pushed to Telegram. %3$s</string>
     <string name="err_publish_failed">Publish failed.</string>
     <string name="err_download_failed">Download failed.</string>
     <string name="err_unexpected">Unexpected error.</string>
+    <string name="err_operation_already_running">Another pack is already downloading/converting. Please wait for it to finish.</string>
 
     <!-- Operation progress stage labels -->
     <string name="stage_reading_metadata">Reading pack metadata</string>
@@ -174,6 +194,7 @@
     <string name="stage_converting_whatsapp">Converting for WhatsApp %1$d/%2$d</string>
     <string name="stage_pushing_telegram">Pushing to Telegram %1$d/%2$d</string>
     <string name="stage_done">Done</string>
+    <string name="stage_retrying">Retrying… (%1$d/%2$d)</string>
 
     <!-- Relative date labels -->
     <string name="date_today">Today</string>
@@ -183,10 +204,6 @@
     <plurals name="stickers_count">
         <item quantity="one">%1$d sticker</item>
         <item quantity="other">%1$d stickers</item>
-    </plurals>
-    <plurals name="sticker_packs_count">
-        <item quantity="one">%1$d sticker pack</item>
-        <item quantity="other">%1$d sticker packs</item>
     </plurals>
     <plurals name="parts_count">
         <item quantity="one">%1$d part</item>

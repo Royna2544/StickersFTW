@@ -2,15 +2,18 @@ package com.royna.stickersftw.network
 
 import com.royna.stickersftw.network.dto.BotInfoDto
 import com.royna.stickersftw.network.dto.StickerSetDto
+import com.royna.stickersftw.network.dto.UserVerifyDto
 import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Response
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.Multipart
 import retrofit2.http.POST
 import retrofit2.http.Part
 import retrofit2.http.Path
+import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 /** Client for the StickersTW_BotServer /v1 API. Return types are all
@@ -19,7 +22,7 @@ import retrofit2.http.Streaming
  * mean failure and never omits a JSON error body on the v1 routes. */
 interface TelegramStickersApi {
     @GET("v1/set/{name}")
-    suspend fun getSet(@Path("name") name: String): Response<StickerSetDto>
+    suspend fun getSet(@Path("name") name: String, @Query("force") force: Boolean = false): Response<StickerSetDto>
 
     @Streaming
     @GET("v1/set/{name}/{id}")
@@ -38,6 +41,9 @@ interface TelegramStickersApi {
     @GET("v1/bot")
     suspend fun getBotInfo(): Response<BotInfoDto>
 
+    @GET("v1/user/{userId}/verify")
+    suspend fun verifyUserStartedChat(@Path("userId") userId: String): Response<UserVerifyDto>
+
     @Multipart
     @POST("v1/set/{name}")
     suspend fun pushSticker(
@@ -48,4 +54,7 @@ interface TelegramStickersApi {
         @Part("emojis") emojis: RequestBody,
         @Part sticker: MultipartBody.Part,
     ): Response<StickerSetDto>
+
+    @DELETE("v1/set/{name}")
+    suspend fun deleteStickerSet(@Path("name") name: String): Response<Unit>
 }

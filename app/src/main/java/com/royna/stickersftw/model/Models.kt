@@ -56,6 +56,10 @@ enum class PackStatus {
 sealed class TelegramPushState {
     data object NotPushed : TelegramPushState()
     data class Pushed(val fullSetName: String) : TelegramPushState()
+    /** The Telegram set exists (some stickers made it) but fewer stickers
+     * are on Telegram than are in the local pack -- a prior push attempt
+     * partially failed. The retry/push button should stay available. */
+    data class Partial(val fullSetName: String, val pushedCount: Int, val totalCount: Int) : TelegramPushState()
 }
 
 data class StickerPack(
@@ -77,6 +81,22 @@ data class StickerPack(
     val whatsappAdded: Boolean? = null,
     val telegramPushState: TelegramPushState = TelegramPushState.NotPushed,
     val updateAvailable: Boolean = false,
+    /** The canonical Telegram set name this pack was imported from, and
+     * which slice of it (-1 = hand-picked custom selection, otherwise the
+     * 0-based part index) -- null/0 for a Created pack. Lets a new import
+     * be recognized as "the same pack/part already imported" instead of
+     * silently creating a duplicate entry. */
+    val telegramSetName: String? = null,
+    val importPartIndex: Int = 0,
+)
+
+/** One entry in the read-only full sticker grid viewer (see
+ * StickerGridScreen) -- unlike [StickerPack.previewStickerPaths]/
+ * [previewEmojis], this pairs each sticker with its own emoji and isn't
+ * truncated to a small preview count. */
+data class StickerGridItem(
+    val path: String,
+    val emoji: String,
 )
 
 /** Shared progress shape for both the fetch-and-convert flow

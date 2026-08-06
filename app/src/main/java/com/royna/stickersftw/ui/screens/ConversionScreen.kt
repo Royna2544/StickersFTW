@@ -51,6 +51,7 @@ fun ConversionScreen(
     onWhatsappResult: () -> Unit,
     showConvertOtherParts: Boolean = false,
     onConvertOtherParts: () -> Unit = {},
+    onRunInBackground: () -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -193,7 +194,10 @@ fun ConversionScreen(
                 }
                 else -> {
                     OutlinedButton(
-                        onClick = onBack,
+                        onClick = {
+                            onRunInBackground()
+                            onBack()
+                        },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text(stringResource(R.string.action_run_in_background))

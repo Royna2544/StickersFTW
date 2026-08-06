@@ -8,9 +8,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AddPhotoAlternate
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -19,7 +16,6 @@ import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.StickerPack
-import com.royna.stickersftw.ui.components.ImportPackCard
 import com.royna.stickersftw.ui.components.PackGridCard
 import com.royna.stickersftw.ui.components.PageHeader
 import com.royna.stickersftw.ui.components.SectionHeader
@@ -31,8 +27,6 @@ fun ConvertScreen(
     installedApps: InstalledAppsState,
     packs: List<StickerPack>,
     onOpenPack: (String) -> Unit,
-    onImportPack: () -> Unit,
-    onCreatePack: () -> Unit,
     onSeeAll: () -> Unit,
     contentPadding: PaddingValues,
 ) {
@@ -69,7 +63,7 @@ fun ConvertScreen(
             )
         }
         items(
-            items = pinned.take(2),
+            items = pinned,
             key = { it.id },
         ) { pack ->
             PackGridCard(
@@ -77,20 +71,5 @@ fun ConvertScreen(
                 onClick = { onOpenPack(pack.id) },
             )
         }
-        item {
-            ImportPackCard(onClick = onImportPack)
-        }
-        item {
-            CreatePackCard(onClick = onCreatePack)
-        }
     }
-}
-
-@Composable
-private fun CreatePackCard(onClick: () -> Unit) {
-    ImportPackCard(
-        onClick = onClick,
-        label = stringResource(R.string.create_pack_label),
-        icon = Icons.Rounded.AddPhotoAlternate,
-    )
 }
