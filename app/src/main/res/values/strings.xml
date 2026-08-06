@@ -47,10 +47,15 @@
     <string name="pack_status_failed">Failed</string>
 
     <!-- My Packs screen -->
-    <string name="my_packs_title_with_counts">My Packs (animated: %1$d, static: %2$d)</string>
+    <string name="my_packs_title">My Packs</string>
     <string name="search_packs_placeholder">Search packs…</string>
     <string name="my_packs_empty">No packs yet</string>
     <string name="my_packs_search_no_results">No packs match your search</string>
+    <string name="search_suggestion_animated_packs">Animated Packs (%1$d)</string>
+    <string name="search_suggestion_static_packs">Static Packs (%1$d)</string>
+    <string name="search_suggestion_animated_packs_label">Animated Packs</string>
+    <string name="search_suggestion_static_packs_label">Static Packs</string>
+    <string name="cd_clear_filter">Clear filter</string>
     <string name="cd_pinned">Pinned</string>
     <string name="cd_pack_menu">Pack menu</string>
     <string name="action_pin">Pin</string>
