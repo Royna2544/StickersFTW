@@ -63,6 +63,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.android)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.gif)
     implementation(libs.airbnb.lottie)
     implementation(libs.aureusapps.webp.android)
     testImplementation(libs.junit)

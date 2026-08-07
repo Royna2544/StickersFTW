@@ -22,6 +22,7 @@ object WebpAnimationEncoder {
         targetPx: Int,
         output: File,
         maxBytes: Int,
+        minimizeSize: Boolean = true,
     ): ConversionOutcome {
         if (frames.isEmpty()) return ConversionOutcome.Failed("No frames to encode.")
 
@@ -37,7 +38,7 @@ object WebpAnimationEncoder {
                 targetPx,
                 targetPx,
                 WebPAnimEncoderOptions(
-                    minimizeSize = true,
+                    minimizeSize = minimizeSize,
                     animParams = WebPMuxAnimParams(loopCount = 0),
                 ),
             )

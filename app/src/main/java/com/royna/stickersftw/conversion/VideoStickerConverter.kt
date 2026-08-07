@@ -142,11 +142,25 @@ object VideoStickerConverter {
      * this path is the standard, widely-used approach that correctly
      * handles both planar and semi-planar chroma layouts via row/pixel
      * stride. Quality loss from the intermediate JPEG is negligible next to
-     * the lossy WebP re-encode every sticker goes through afterward. */
+     * the lossy WebP re-encode every sticker goes through afterward.
+     *
+     * Reads through [Image.getCropRect] rather than [Image.getWidth]/
+     * [Image.getHeight] directly, since decoders commonly pad the underlying
+     * buffer beyond the actual visible frame. On-device testing traced a
+     * real magenta/green corruption artifact further than that, though: to a
+     * portrait Telegram video decoding at an *odd* width (333). Android's
+     * NV21/[YuvImage] format assumes even width and height -- chroma is
+     * subsampled 2:1 per axis, so an odd luma width leaves one column with
+     * no well-defined chroma pair, and naively flooring `width / 2` shifts
+     * every chroma sample after it half a column out of registration with
+     * the luma plane it's supposed to color, for the rest of the frame. The
+     * crop is rounded down to even to sidestep the case entirely -- losing
+     * one edge pixel is imperceptible next to a whole frame of wrong color. */
     private fun imageToBitmap(image: Image): Bitmap {
-        val width = image.width
-        val height = image.height
-        val nv21 = yuv420888ToNv21(image, width, height)
+        val crop = image.cropRect.takeIf { !it.isEmpty } ?: Rect(0, 0, image.width, image.height)
+        val width = crop.width() and 1.inv()
+        val height = crop.height() and 1.inv()
+        val nv21 = yuv420888ToNv21(image, crop, width, height)
         val out = ByteArrayOutputStream()
         YuvImage(nv21, ImageFormat.NV21, width, height, null)
             .compressToJpeg(Rect(0, 0, width, height), 100, out)
@@ -154,7 +168,7 @@ object VideoStickerConverter {
         return BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
     }
 
-    private fun yuv420888ToNv21(image: Image, width: Int, height: Int): ByteArray {
+    private fun yuv420888ToNv21(image: Image, crop: Rect, width: Int, height: Int): ByteArray {
         val nv21 = ByteArray(width * height * 3 / 2)
 
         val yPlane = image.planes[0]
@@ -162,25 +176,29 @@ object VideoStickerConverter {
         val yRowStride = yPlane.rowStride
         var pos = 0
         for (row in 0 until height) {
-            yBuffer.position(row * yRowStride)
+            yBuffer.position((crop.top + row) * yRowStride + crop.left)
             yBuffer.get(nv21, pos, width)
             pos += width
         }
 
+        // U and V are read with each plane's OWN row/pixel stride, not a
+        // shared one -- they aren't guaranteed to match even though the
+        // planes are the same subsampled size.
         val uPlane = image.planes[1]
         val vPlane = image.planes[2]
         val uBuffer = uPlane.buffer
         val vBuffer = vPlane.buffer
-        val uvRowStride = vPlane.rowStride
-        val uvPixelStride = vPlane.pixelStride
+        val chromaLeft = crop.left / 2
+        val chromaTop = crop.top / 2
         val chromaWidth = width / 2
         val chromaHeight = height / 2
         for (row in 0 until chromaHeight) {
-            val rowStart = row * uvRowStride
+            val vRowStart = (chromaTop + row) * vPlane.rowStride
+            val uRowStart = (chromaTop + row) * uPlane.rowStride
             for (col in 0 until chromaWidth) {
-                val idx = rowStart + col * uvPixelStride
-                nv21[pos++] = vBuffer.get(idx)
-                nv21[pos++] = uBuffer.get(idx)
+                val vCol = chromaLeft + col
+                nv21[pos++] = vBuffer.get(vRowStart + vCol * vPlane.pixelStride)
+                nv21[pos++] = uBuffer.get(uRowStart + vCol * uPlane.pixelStride)
             }
         }
 
