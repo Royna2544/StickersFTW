@@ -16,6 +16,13 @@ import kotlinx.coroutines.ensureActive
  * library's native WebPAnimEncoder. Animated-WebP quality can't be adjusted
  * after the fact, so each size-budget step below re-runs the full encode. */
 object WebpAnimationEncoder {
+    /** Below this frame count, halving again would risk collapsing to a
+     * single frame -- which flips the file back to plain "VP8 " static
+     * format (see StickerConversionPipeline's nudgedCopy doc for the same
+     * failure mode). Give up with a hard failure instead of shipping either
+     * a broken-static or an over-budget file. */
+    private const val MIN_FRAMES_FLOOR = 2
+
     suspend fun encode(
         context: Context,
         frames: List<TimedFrame>,
@@ -27,52 +34,64 @@ object WebpAnimationEncoder {
         if (frames.isEmpty()) return ConversionOutcome.Failed("No frames to encode.")
 
         output.parentFile?.mkdirs()
-        val totalDurationMs = (frames.last().timestampMs + frameIntervalEstimate(frames)).coerceAtLeast(1L)
 
+        var currentFrames = frames
         var lastSize = -1
-        for (quality in SizeBudget.QUALITY_STEPS) {
+        while (true) {
             coroutineContext.ensureActive()
+            val totalDurationMs = (currentFrames.last().timestampMs + frameIntervalEstimate(currentFrames)).coerceAtLeast(1L)
 
-            val encoder = WebPAnimEncoder(
-                context,
-                targetPx,
-                targetPx,
-                WebPAnimEncoderOptions(
-                    minimizeSize = minimizeSize,
-                    animParams = WebPMuxAnimParams(loopCount = 0),
-                ),
-            )
-            try {
-                encoder.configure(
-                    WebPConfig(lossless = WebPConfig.COMPRESSION_LOSSY, quality = quality.toFloat()),
-                    WebPPreset.WEBP_PRESET_DEFAULT,
+            for (quality in SizeBudget.QUALITY_STEPS) {
+                coroutineContext.ensureActive()
+
+                val encoder = WebPAnimEncoder(
+                    context,
+                    targetPx,
+                    targetPx,
+                    WebPAnimEncoderOptions(
+                        minimizeSize = minimizeSize,
+                        animParams = WebPMuxAnimParams(loopCount = 0),
+                    ),
                 )
-                for (frame in frames) {
-                    coroutineContext.ensureActive()
-                    encoder.addFrame(frame.timestampMs, frame.bitmap)
+                try {
+                    encoder.configure(
+                        WebPConfig(lossless = WebPConfig.COMPRESSION_LOSSY, quality = quality.toFloat()),
+                        WebPPreset.WEBP_PRESET_DEFAULT,
+                    )
+                    for (frame in currentFrames) {
+                        coroutineContext.ensureActive()
+                        encoder.addFrame(frame.timestampMs, frame.bitmap)
+                    }
+                    if (output.exists()) output.delete()
+                    encoder.assemble(totalDurationMs, Uri.fromFile(output))
+                } catch (e: Exception) {
+                    encoder.release()
+                    return ConversionOutcome.Failed(e.message ?: "Animated WebP encoding failed.")
                 }
-                if (output.exists()) output.delete()
-                encoder.assemble(totalDurationMs, Uri.fromFile(output))
-            } catch (e: Exception) {
                 encoder.release()
-                return ConversionOutcome.Failed(e.message ?: "Animated WebP encoding failed.")
-            }
-            encoder.release()
 
-            val size = output.length().toInt()
-            lastSize = size
-            if (size in 1..maxBytes) {
-                return ConversionOutcome.Success(size)
+                val size = output.length().toInt()
+                lastSize = size
+                if (size in 1..maxBytes) {
+                    return ConversionOutcome.Success(size)
+                }
             }
-        }
 
-        return if (lastSize > 0) {
-            ConversionOutcome.Success(
-                lastSize,
-                warning = "Animated sticker is ${lastSize / 1024}KB, over the ${maxBytes / 1024}KB budget.",
-            )
-        } else {
-            ConversionOutcome.Failed("Animated WebP encoding produced no output.")
+            // Lowest quality still doesn't fit -- WhatsApp rejects the whole
+            // pack over a single oversized sticker, so shipping this anyway
+            // (as a prior version of this code did, via a warning) is worse
+            // than dropping the sticker. Halve the frame count (keeping
+            // every other frame, so total playback duration is preserved
+            // via the same timestamps) and retry the whole quality ladder --
+            // fewer frames is a far bigger size lever than quality at the
+            // low end.
+            if (currentFrames.size <= MIN_FRAMES_FLOOR) {
+                return ConversionOutcome.Failed(
+                    "Animated WebP still ${lastSize / 1024}KB at ${currentFrames.size} frames and lowest " +
+                        "quality -- exceeds the ${maxBytes / 1024}KB budget.",
+                )
+            }
+            currentFrames = currentFrames.filterIndexed { index, _ -> index % 2 == 0 }
         }
     }
 
