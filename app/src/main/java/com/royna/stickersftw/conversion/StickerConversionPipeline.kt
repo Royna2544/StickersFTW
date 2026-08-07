@@ -70,7 +70,7 @@ object StickerConversionPipeline {
                 frames
             } else {
                 val only = frames.first()
-                listOf(only, only.copy(timestampMs = only.timestampMs + 100L))
+                listOf(only, TimedFrame(only.timestampMs + 100L, nudgedCopy(only.bitmap)))
             }
             WebpAnimationEncoder.encode(context, animatedFrames, SizeBudget.STICKER_PX, output, SizeBudget.ANIMATED_MAX_BYTES)
         } else {
@@ -78,6 +78,29 @@ object StickerConversionPipeline {
         }
 
         return outcome.toResult(output, forceAnimated)
+    }
+
+    /** A byte-identical (or near-identical) duplicate frame gets silently
+     * collapsed back into a single-frame *simple*-format WebP by the
+     * animation encoder -- on-device testing showed pack-consistency padding
+     * (a real frame + a copy) producing a plain "VP8 " file with no ANIM
+     * chunk at all, defeating the whole point of forcing that sticker to
+     * animate. A single-pixel tweak isn't enough: lossy WEBP quantization at
+     * the lower quality steps this pipeline falls back to under the size
+     * budget washes out a one-bit difference just as effectively as a true
+     * duplicate. A ~2% zoom instead changes essentially every pixel by a
+     * small amount -- imperceptible as a barely-there pulse over one 100ms
+     * loop frame, but a real, spatially-distributed difference that survives
+     * quantization at any quality step. */
+    private fun nudgedCopy(source: Bitmap): Bitmap {
+        val width = source.width
+        val height = source.height
+        val scaledWidth = (width * 1.02f).toInt().coerceAtLeast(width + 2)
+        val scaledHeight = (height * 1.02f).toInt().coerceAtLeast(height + 2)
+        val scaled = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true)
+        val x = (scaledWidth - width) / 2
+        val y = (scaledHeight - height) / 2
+        return Bitmap.createBitmap(scaled, x, y, width, height)
     }
 
     suspend fun buildTrayIcon(
