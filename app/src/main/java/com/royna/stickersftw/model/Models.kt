@@ -1,9 +1,19 @@
 package com.royna.stickersftw.model
 
+import com.royna.stickersftw.network.TelegramBackendConfig
+
 enum class ThemeMode {
     System,
     Light,
     Dark,
+}
+
+/** How the app talks to Telegram: through a self-hosted companion server,
+ * or directly against `api.telegram.org` using a user-supplied bot token.
+ * See [AppSettings.backendConfig]. */
+enum class BackendMode {
+    ServerUrl,
+    BotToken,
 }
 
 data class AppSettings(
@@ -12,7 +22,20 @@ data class AppSettings(
     val telegramUserId: String = "",
     val updateChecksEnabled: Boolean = true,
     val pingTestsEnabled: Boolean = true,
+    val backendMode: BackendMode = BackendMode.ServerUrl,
+    /** Stored encrypted at rest -- see `data.SecureTokenStore`, not plain
+     * DataStore like the other fields here. */
+    val botToken: String = "",
 )
+
+/** The [TelegramBackendConfig] implied by the current backend-mode
+ * settings -- used at every call site that used to read `serverUrl`
+ * directly. */
+val AppSettings.backendConfig: TelegramBackendConfig
+    get() = when (backendMode) {
+        BackendMode.ServerUrl -> TelegramBackendConfig.ServerUrl(serverUrl)
+        BackendMode.BotToken -> TelegramBackendConfig.BotToken(botToken)
+    }
 
 /** Live result of actually reaching the configured server -- distinct from
  * [AppSettings.serverUrl] itself, which says nothing about reachability. */

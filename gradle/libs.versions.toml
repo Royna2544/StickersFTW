@@ -20,6 +20,7 @@ coil = "3.5.0"
 lottie = "6.7.1"
 webpAndroid = "1.1.2"
 kotlinxCoroutinesTest = "1.11.0"
+securityCrypto = "1.1.0"
 
 [libraries]
 androidx-compose-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
@@ -56,6 +57,7 @@ coil-gif = { module = "io.coil-kt.coil3:coil-gif", version.ref = "coil" }
 airbnb-lottie = { module = "com.airbnb.android:lottie", version.ref = "lottie" }
 aureusapps-webp-android = { module = "com.aureusapps.android:webp-android", version.ref = "webpAndroid" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
+androidx-security-crypto = { module = "androidx.security:security-crypto", version.ref = "securityCrypto" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

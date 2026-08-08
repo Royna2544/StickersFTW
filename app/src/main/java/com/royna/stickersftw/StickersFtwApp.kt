@@ -127,6 +127,7 @@ fun StickersFtwApp(
     val conversion by viewModel.conversion.collectAsStateWithLifecycle()
     val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
     val customSelection by viewModel.customSelection.collectAsStateWithLifecycle()
+    val customPickerThumbnails by viewModel.customPickerThumbnails.collectAsStateWithLifecycle()
     val botUsername by viewModel.botUsername.collectAsStateWithLifecycle()
     val pendingNavigation by viewModel.pendingNavigation.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
@@ -253,8 +254,11 @@ fun StickersFtwApp(
                     settings = settings,
                     botUsername = botUsername,
                     onFetchBotUsername = viewModel::fetchBotUsername,
+                    onSetBackendMode = viewModel::setBackendMode,
                     onCheckAndSaveServerUrl = viewModel::checkAndSaveServerUrl,
                     onForceSaveServerUrl = viewModel::forceSaveServerUrl,
+                    onCheckAndSaveBotToken = viewModel::checkAndSaveBotToken,
+                    onForceSaveBotToken = viewModel::forceSaveBotToken,
                     onSetThemeMode = viewModel::setThemeMode,
                     onSetTelegramUserId = viewModel::setTelegramUserId,
                     onSetUpdateChecksEnabled = viewModel::setUpdateChecksEnabled,
@@ -271,6 +275,7 @@ fun StickersFtwApp(
                     onImport = { input, partIndex -> viewModel.startImport(input, partIndex) },
                     onPickCustom = {
                         viewModel.beginCustomSelection()
+                        viewModel.loadCustomPickerThumbnails()
                         navController.navigate(Routes.ImportCustom)
                     },
                     initialInput = viewModel.lastPreviewInput,
@@ -279,8 +284,7 @@ fun StickersFtwApp(
             composable(Routes.ImportCustom) {
                 val loaded = importPreview as? ImportPreviewUiState.Loaded
                 CustomStickerPickerScreen(
-                    serverUrl = settings.serverUrl,
-                    shortName = loaded?.shortName.orEmpty(),
+                    thumbnailUrls = customPickerThumbnails,
                     stickers = loaded?.stickers.orEmpty(),
                     selectedIds = customSelection.orEmpty(),
                     onToggle = viewModel::toggleCustomSticker,

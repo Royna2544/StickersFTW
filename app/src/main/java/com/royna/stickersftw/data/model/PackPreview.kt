@@ -3,6 +3,11 @@ package com.royna.stickersftw.data.model
 data class PreviewSticker(
     val id: String,
     val emoji: String?,
+    /** The sticker's own thumbnail file id (Telegram) -- used by
+     * [com.royna.stickersftw.data.StickerPackRepository.resolveThumbnailUrls]
+     * for the bot-token backend, which needs it to resolve a displayable
+     * URL via `getFile`. Unused by the server backend. */
+    val thumb: String? = null,
 )
 
 data class PackPreview(

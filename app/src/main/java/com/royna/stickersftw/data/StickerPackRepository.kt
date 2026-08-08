@@ -28,29 +28,28 @@ import com.royna.stickersftw.model.PickedMediaKind
 import com.royna.stickersftw.model.StickerGridItem
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramPushState
-import com.royna.stickersftw.network.RetrofitProvider
-import com.royna.stickersftw.network.TelegramStickersApi
+import com.royna.stickersftw.network.ApiResult
+import com.royna.stickersftw.network.TelegramBackend
+import com.royna.stickersftw.network.TelegramBackendConfig
+import com.royna.stickersftw.network.TelegramBackendProvider
 import com.royna.stickersftw.network.dto.StickerDto
 import com.royna.stickersftw.network.dto.StickerSetDto
 import com.royna.stickersftw.network.retryTransientErrors
-import com.royna.stickersftw.network.toApiErrorOrNull
-import com.royna.stickersftw.network.withRateLimitRetry
 import com.royna.stickersftw.whatsapp.WhatsAppContract
 import com.royna.stickersftw.whatsapp.WhatsAppIntents
 import com.royna.stickersftw.whatsapp.WhatsAppWhitelistChecker
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 /** Unifies Room persistence, the network client, the conversion pipeline,
  * and WhatsApp registration behind one API the ViewModel drives. Constructed
@@ -65,11 +64,8 @@ class StickerPackRepository(private val appContext: Context) {
      * no retry, since this backs interactive "is this server reachable"
      * checks (Settings save, Convert page status) that need a prompt answer,
      * not a resilient background operation. */
-    suspend fun pingServer(serverUrl: String): Boolean = try {
-        RetrofitProvider.apiFor(serverUrl).getBotInfo().isSuccessful
-    } catch (_: Exception) {
-        false
-    }
+    suspend fun pingServer(backendConfig: TelegramBackendConfig): Boolean =
+        TelegramBackendProvider.resolve(backendConfig).ping()
 
     fun observePacks(): Flow<List<StickerPack>> =
         packDao.observePacksWithStickers().map { list -> list.map { it.toUiModel() } }
@@ -88,20 +84,22 @@ class StickerPackRepository(private val appContext: Context) {
 
     // ---- Fetch (Telegram -> convert -> WhatsApp) --------------------------
 
-    suspend fun previewTelegramPack(serverUrl: String, input: String): PreviewResult {
+    suspend fun previewTelegramPack(backendConfig: TelegramBackendConfig, input: String): PreviewResult {
         val shortName = extractShortName(input)
         if (shortName.isBlank()) {
             return PreviewResult.Error(appContext.getString(R.string.err_enter_pack_link))
         }
 
-        val api = RetrofitProvider.apiFor(serverUrl)
-        val response = try {
-            withRateLimitRetry { api.getSet(shortName) }
+        val backend = TelegramBackendProvider.resolve(backendConfig)
+        val result = try {
+            backend.getSet(shortName)
         } catch (e: Exception) {
             return PreviewResult.Error(describeNetworkError(e))
         }
-        response.toApiErrorOrNull()?.let { return PreviewResult.Error(it.userMessage) }
-        val dto = response.body() ?: return PreviewResult.Error(appContext.getString(R.string.err_empty_response))
+        val dto = when (result) {
+            is ApiResult.Failure -> return PreviewResult.Error(result.error.userMessage)
+            is ApiResult.Success -> result.value
+        }
 
         return when (val countResult = PackConversionPlanner.applyCountRules(dto.stickers)) {
             is PlannerResult.Rejected -> PreviewResult.Error(countResult.reason)
@@ -113,7 +111,7 @@ class StickerPackRepository(private val appContext: Context) {
                         title = dto.title,
                         totalStickerCount = dto.stickers.size,
                         partCount = partRanges.size,
-                        stickers = dto.stickers.map { PreviewSticker(it.id, it.emoji) },
+                        stickers = dto.stickers.map { PreviewSticker(it.id, it.emoji, it.thumb) },
                         emojis = dto.stickers.mapNotNull { it.emoji }.distinct().take(8),
                         warning = if (partRanges.size > 1) {
                             val stickersPhrase = appContext.resources.getQuantityString(
@@ -138,11 +136,11 @@ class StickerPackRepository(private val appContext: Context) {
 
     fun importAndConvert(
         packId: String,
-        serverUrl: String,
+        backendConfig: TelegramBackendConfig,
         input: String,
         partIndex: Int = 0,
     ): Flow<PackOperationProgress> = flow {
-        val fetched = fetchStickerSet(serverUrl, input) ?: return@flow
+        val fetched = fetchStickerSet(backendConfig, input) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
@@ -159,7 +157,7 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
@@ -171,7 +169,7 @@ class StickerPackRepository(private val appContext: Context) {
      * with (always 0 for a custom or single-part import) -- this is what
      * "Update" means: not a merge/reconciliation, a fresh re-import under
      * the same pack id. */
-    fun applyPackUpdate(packId: String, serverUrl: String): Flow<PackOperationProgress> = flow {
+    fun applyPackUpdate(packId: String, backendConfig: TelegramBackendConfig): Flow<PackOperationProgress> = flow {
         val pack = packDao.getPack(packId) ?: run {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
             return@flow
@@ -181,7 +179,7 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
         val input = pack.sourceUrl ?: setName
-        val fetched = fetchStickerSet(serverUrl, input) ?: return@flow
+        val fetched = fetchStickerSet(backendConfig, input) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
@@ -195,7 +193,7 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_update_failed)
         finalizePackFailed(packId, message)
@@ -207,19 +205,18 @@ class StickerPackRepository(private val appContext: Context) {
      * captured at the last import/update. Drives My Packs' pull-to-refresh;
      * a single pack's network failure is swallowed so it doesn't block the
      * rest of the sweep. */
-    suspend fun checkForUpdates(serverUrl: String) {
+    suspend fun checkForUpdates(backendConfig: TelegramBackendConfig) {
         val candidates = packDao.getUpdateCheckCandidates()
         if (candidates.isEmpty()) return
-        val api = RetrofitProvider.apiFor(serverUrl)
+        val backend = TelegramBackendProvider.resolve(backendConfig)
         for (pack in candidates) {
             val setName = pack.telegramSetName ?: continue
-            val response = try {
-                withRateLimitRetry { api.getSet(setName) }
+            val result = try {
+                backend.getSet(setName)
             } catch (_: Exception) {
                 continue
             }
-            if (!response.isSuccessful) continue
-            val dto = response.body() ?: continue
+            val dto = (result as? ApiResult.Success)?.value ?: continue
             val freshSignature = SourceSignature.compute(dto)
             if (pack.sourceSignature != null && freshSignature != pack.sourceSignature) {
                 packDao.setUpdateAvailable(pack.id, true)
@@ -240,19 +237,21 @@ class StickerPackRepository(private val appContext: Context) {
     /** User-triggered "refresh this pack now" -- unlike [checkForUpdates]'s
      * cache-friendly sweep over every eligible pack, this always tells the
      * server to bypass its cache and re-fetch this one pack from Telegram. */
-    suspend fun forceRefreshPack(packId: String, serverUrl: String): ForceRefreshResult {
+    suspend fun forceRefreshPack(packId: String, backendConfig: TelegramBackendConfig): ForceRefreshResult {
         val pack = packDao.getPack(packId)
             ?: return ForceRefreshResult.Failed(appContext.getString(R.string.err_pack_not_found))
         val setName = pack.telegramSetName
             ?: return ForceRefreshResult.Failed(appContext.getString(R.string.err_no_linked_telegram_source))
-        val api = RetrofitProvider.apiFor(serverUrl)
-        val response = try {
-            retryTransientErrors { api.getSet(setName, force = true) }
+        val backend = TelegramBackendProvider.resolve(backendConfig)
+        val result = try {
+            retryTransientErrors { backend.getSet(setName, force = true) }
         } catch (e: Exception) {
             return ForceRefreshResult.Failed(describeNetworkError(e))
         }
-        response.toApiErrorOrNull()?.let { return ForceRefreshResult.Failed(it.userMessage) }
-        val dto = response.body() ?: return ForceRefreshResult.Failed(appContext.getString(R.string.err_empty_response))
+        val dto = when (result) {
+            is ApiResult.Failure -> return ForceRefreshResult.Failed(result.error.userMessage)
+            is ApiResult.Success -> result.value
+        }
         val freshSignature = SourceSignature.compute(dto)
         return if (pack.sourceSignature != null && freshSignature != pack.sourceSignature) {
             packDao.setUpdateAvailable(packId, true)
@@ -267,11 +266,11 @@ class StickerPackRepository(private val appContext: Context) {
      * custom sticker picker. */
     fun importAndConvertCustom(
         packId: String,
-        serverUrl: String,
+        backendConfig: TelegramBackendConfig,
         input: String,
         selectedIds: Set<String>,
     ): Flow<PackOperationProgress> = flow {
-        val fetched = fetchStickerSet(serverUrl, input) ?: return@flow
+        val fetched = fetchStickerSet(backendConfig, input) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val stickerDtos = setDto.stickers.filter { it.id in selectedIds }
@@ -284,18 +283,46 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
 
-        convertAndPersistImportedPack(packId, serverUrl, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
         emit(PackOperationProgress.Failed(message))
     }.flowOn(Dispatchers.IO)
 
+    /** Resolves each sticker's displayable thumbnail URL -- instant for the
+     * server backend, a `getFile` round trip per sticker for the bot-token
+     * backend. Only call this when a thumbnail grid is actually about to be
+     * shown (the custom sticker picker), not on every preview load; small
+     * bounded concurrency keeps a large set from serializing one request at
+     * a time. */
+    suspend fun resolveThumbnailUrls(
+        backendConfig: TelegramBackendConfig,
+        setName: String,
+        stickers: List<PreviewSticker>,
+    ): Map<String, String> {
+        val backend = TelegramBackendProvider.resolve(backendConfig)
+        return coroutineScope {
+            stickers.chunked(8).flatMap { chunk ->
+                chunk.map { sticker ->
+                    async {
+                        val url = try {
+                            backend.thumbnailUrl(setName, sticker.id, sticker.thumb)
+                        } catch (_: Exception) {
+                            null
+                        }
+                        sticker.id to url
+                    }
+                }.awaitAll()
+            }
+        }.mapNotNull { (id, url) -> url?.let { id to it } }.toMap()
+    }
+
     /** Fetches and validates the sticker set's metadata, emitting a
      * [PackOperationProgress.Failed] and returning null on any failure so
      * callers can just bail out with `?: return@flow`. */
     private suspend fun FlowCollector<PackOperationProgress>.fetchStickerSet(
-        serverUrl: String,
+        backendConfig: TelegramBackendConfig,
         input: String,
     ): Pair<String, StickerSetDto>? {
         val shortNameInput = extractShortName(input)
@@ -305,24 +332,23 @@ class StickerPackRepository(private val appContext: Context) {
         }
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_reading_metadata), 0.05f))
-        val api = RetrofitProvider.apiFor(serverUrl)
-        val setResponse = try {
+        val backend = TelegramBackendProvider.resolve(backendConfig)
+        val result = try {
             retryTransientErrors(
                 onRetry = { attempt, max ->
                     emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_retrying, attempt, max), 0.05f))
                 },
-            ) { withRateLimitRetry { api.getSet(shortNameInput) } }
+            ) { backend.getSet(shortNameInput) }
         } catch (e: Exception) {
             emit(PackOperationProgress.Failed(describeNetworkError(e)))
             return null
         }
-        setResponse.toApiErrorOrNull()?.let {
-            emit(PackOperationProgress.Failed(it.userMessage))
-            return null
-        }
-        val setDto = setResponse.body() ?: run {
-            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_empty_response)))
-            return null
+        val setDto = when (result) {
+            is ApiResult.Failure -> {
+                emit(PackOperationProgress.Failed(result.error.userMessage))
+                return null
+            }
+            is ApiResult.Success -> result.value
         }
         return shortNameInput to setDto
     }
@@ -334,7 +360,7 @@ class StickerPackRepository(private val appContext: Context) {
      * and how the title is suffixed. */
     private suspend fun FlowCollector<PackOperationProgress>.convertAndPersistImportedPack(
         packId: String,
-        serverUrl: String,
+        backendConfig: TelegramBackendConfig,
         input: String,
         shortNameInput: String,
         setDto: StickerSetDto,
@@ -342,7 +368,7 @@ class StickerPackRepository(private val appContext: Context) {
         titleSuffix: String,
         partIndex: Int = 0,
     ) {
-        val api = RetrofitProvider.apiFor(serverUrl)
+        val backend = TelegramBackendProvider.resolve(backendConfig)
         val now = System.currentTimeMillis()
         // If this packId already exists, we're re-running an update: wipe the
         // previous slice's rows and files before laying down the fresh one,
@@ -414,7 +440,7 @@ class StickerPackRepository(private val appContext: Context) {
                 ),
             )
             val originalFile = File(originalDir, sanitizeFileName(dto.id))
-            val contentType = downloadSticker(api, setDto.name, dto.id, originalFile) { attempt, max ->
+            val contentType = downloadSticker(backend, setDto.name, dto.id, originalFile, dto.knownContentType) { attempt, max ->
                 emit(
                     PackOperationProgress.Progress(
                         appContext.getString(R.string.stage_retrying, attempt, max),
@@ -568,7 +594,7 @@ class StickerPackRepository(private val appContext: Context) {
         packId: String,
         pushToTelegram: Boolean,
         addToWhatsapp: Boolean,
-        serverUrl: String,
+        backendConfig: TelegramBackendConfig,
         telegramUserId: String,
     ): Flow<PackOperationProgress> = flow {
         val pack = packDao.getPack(packId) ?: run {
@@ -674,10 +700,10 @@ class StickerPackRepository(private val appContext: Context) {
                 val shortName = pack.pushShortName
                 if (shortName == null) {
                     telegramPushWarning = appContext.getString(R.string.err_missing_short_name)
-                } else if (checkUserStartedChat(telegramUserId, serverUrl) == false) {
+                } else if (checkUserStartedChat(telegramUserId, backendConfig) == false) {
                     telegramPushWarning = appContext.getString(R.string.err_user_not_started_bot)
                 } else {
-                    val api = RetrofitProvider.apiFor(serverUrl)
+                    val backend = TelegramBackendProvider.resolve(backendConfig)
                     for ((index, entry) in localFiles.withIndex()) {
                         val (sticker, file) = entry
                         emit(
@@ -706,7 +732,7 @@ class StickerPackRepository(private val appContext: Context) {
                             is StickerConvertResult.Success -> {
                                 val emojiList = sticker.emojis.split(',').filter { it.isNotBlank() }
                                 val pushResult = pushOneSticker(
-                                    api = api,
+                                    backend = backend,
                                     shortName = shortName,
                                     userId = telegramUserId,
                                     title = if (telegramPushedFullName == null) pack.title else null,
@@ -802,15 +828,15 @@ class StickerPackRepository(private val appContext: Context) {
     /** Deletes the pack's Telegram sticker set (if it has one) and then its
      * local copy. If the Telegram-side deletion fails, the local pack is
      * left untouched so the user doesn't lose their only remaining copy. */
-    suspend fun deletePackAndTelegramSet(id: String, serverUrl: String): DeleteTelegramResult {
+    suspend fun deletePackAndTelegramSet(id: String, backendConfig: TelegramBackendConfig): DeleteTelegramResult {
         val pack = packDao.getPack(id) ?: return DeleteTelegramResult.Failed(appContext.getString(R.string.err_pack_not_found))
         val fullName = pack.telegramSetName
         if (fullName != null) {
             try {
-                val api = RetrofitProvider.apiFor(serverUrl)
-                val response = retryTransientErrors { api.deleteStickerSet(fullName) }
-                response.toApiErrorOrNull()?.let {
-                    return DeleteTelegramResult.Failed(it.userMessage)
+                val backend = TelegramBackendProvider.resolve(backendConfig)
+                val result = retryTransientErrors { backend.deleteStickerSet(fullName) }
+                if (result is ApiResult.Failure) {
+                    return DeleteTelegramResult.Failed(result.error.userMessage)
                 }
             } catch (e: Exception) {
                 return DeleteTelegramResult.Failed(describeNetworkError(e))
@@ -941,25 +967,14 @@ class StickerPackRepository(private val appContext: Context) {
     }
 
     private suspend fun downloadSticker(
-        api: TelegramStickersApi,
+        backend: TelegramBackend,
         setName: String,
         stickerId: String,
         output: File,
+        contentTypeHint: String? = null,
         onRetry: suspend (attempt: Int, maxAttempts: Int) -> Unit = { _, _ -> },
     ): String? = try {
-        val response = retryTransientErrors(onRetry = onRetry) { withRateLimitRetry { api.getSticker(setName, stickerId) } }
-        if (!response.isSuccessful) {
-            null
-        } else {
-            val body = response.body()
-            if (body == null) {
-                null
-            } else {
-                output.parentFile?.mkdirs()
-                body.byteStream().use { input -> output.outputStream().use { out -> input.copyTo(out) } }
-                response.headers()["Content-Type"]
-            }
-        }
+        retryTransientErrors(onRetry = onRetry) { backend.downloadSticker(setName, stickerId, output, contentTypeHint) }
     } catch (_: Exception) {
         null
     }
@@ -1019,10 +1034,10 @@ class StickerPackRepository(private val appContext: Context) {
      * check itself couldn't be completed (network/server error) -- callers
      * should treat null as "proceed anyway" so a flaky verify call never
      * blocks a push that might otherwise succeed. */
-    private suspend fun checkUserStartedChat(userId: String, serverUrl: String): Boolean? = try {
-        val api = RetrofitProvider.apiFor(serverUrl)
-        val response = retryTransientErrors { api.verifyUserStartedChat(userId) }
-        if (response.isSuccessful) response.body()?.started else null
+    private suspend fun checkUserStartedChat(userId: String, backendConfig: TelegramBackendConfig): Boolean? = try {
+        val backend = TelegramBackendProvider.resolve(backendConfig)
+        val result = retryTransientErrors { backend.verifyUserStartedChat(userId) }
+        (result as? ApiResult.Success)?.value?.started
     } catch (_: Exception) {
         null
     }
@@ -1033,7 +1048,7 @@ class StickerPackRepository(private val appContext: Context) {
     }
 
     private suspend fun pushOneSticker(
-        api: TelegramStickersApi,
+        backend: TelegramBackend,
         shortName: String,
         userId: String,
         title: String?,
@@ -1042,31 +1057,12 @@ class StickerPackRepository(private val appContext: Context) {
         emojis: List<String>,
         onRetry: suspend (attempt: Int, maxAttempts: Int) -> Unit = { _, _ -> },
     ): PushOneResult = try {
-        val mediaType = if (format == "video") "video/webm".toMediaType() else "image/webp".toMediaType()
-        val stickerPart = MultipartBody.Part.createFormData("sticker", file.name, file.asRequestBody(mediaType))
-        val plainText = "text/plain".toMediaType()
-        val response = retryTransientErrors(onRetry = onRetry) {
-            withRateLimitRetry {
-                api.pushSticker(
-                    shortName = shortName,
-                    userId = userId.toRequestBody(plainText),
-                    title = title?.toRequestBody(plainText),
-                    format = format.toRequestBody(plainText),
-                    emojis = emojis.joinToString(",").toRequestBody(plainText),
-                    sticker = stickerPart,
-                )
-            }
+        val result = retryTransientErrors(onRetry = onRetry) {
+            backend.pushSticker(shortName, userId, title, format, emojis, file)
         }
-        val error = response.toApiErrorOrNull()
-        if (error != null) {
-            PushOneResult.Failed(error.userMessage)
-        } else {
-            val body = response.body()
-            if (body != null) {
-                PushOneResult.Success(body.name)
-            } else {
-                PushOneResult.Failed(appContext.getString(R.string.err_empty_response))
-            }
+        when (result) {
+            is ApiResult.Failure -> PushOneResult.Failed(result.error.userMessage)
+            is ApiResult.Success -> PushOneResult.Success(result.value.name)
         }
     } catch (e: Exception) {
         PushOneResult.Failed(describeNetworkError(e))

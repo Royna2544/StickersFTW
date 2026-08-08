@@ -22,6 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
+import com.royna.stickersftw.model.BackendMode
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.ServerConnectionStatus
 import com.royna.stickersftw.model.StickerPack
@@ -43,7 +44,7 @@ fun ConvertScreen(
 ) {
     val pinned = packs.filter { it.isPinned }
 
-    LaunchedEffect(settings.serverUrl, settings.pingTestsEnabled) {
+    LaunchedEffect(settings.backendMode, settings.serverUrl, settings.botToken, settings.pingTestsEnabled) {
         onCheckServerConnection()
     }
 
@@ -59,7 +60,10 @@ fun ConvertScreen(
             )
             Spacer(Modifier.height(18.dp))
             ServiceStatusPanel(
-                serverUrl = settings.serverUrl,
+                serverUrl = when (settings.backendMode) {
+                    BackendMode.ServerUrl -> settings.serverUrl
+                    BackendMode.BotToken -> stringResource(R.string.status_bot_token_mode)
+                },
                 serverStatus = serverStatus,
                 onRetryServerCheck = onCheckServerConnection,
                 telegramClient = installedApps.telegramClient,

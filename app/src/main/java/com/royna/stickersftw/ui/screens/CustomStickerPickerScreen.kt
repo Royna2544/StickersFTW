@@ -52,8 +52,7 @@ import com.royna.stickersftw.data.model.PreviewSticker
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomStickerPickerScreen(
-    serverUrl: String,
-    shortName: String,
+    thumbnailUrls: Map<String, String>,
     stickers: List<PreviewSticker>,
     selectedIds: Set<String>,
     onToggle: (String) -> Unit,
@@ -114,6 +113,7 @@ fun CustomStickerPickerScreen(
         ) {
             items(stickers, key = { it.id }) { sticker ->
                 val isSelected = sticker.id in selectedIds
+                val thumbnailUrl = thumbnailUrls[sticker.id]
                 Box(
                     modifier = Modifier
                         .aspectRatio(1f)
@@ -122,22 +122,31 @@ fun CustomStickerPickerScreen(
                         .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
                         .clickable { onToggle(sticker.id) },
                 ) {
-                    SubcomposeAsyncImage(
-                        model = "$serverUrl/v1/set/$shortName/${sticker.id}/thumbnail",
-                        contentDescription = sticker.emoji,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(6.dp),
-                        loading = {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            }
-                        },
-                    )
+                    if (thumbnailUrl == null) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                    } else {
+                        SubcomposeAsyncImage(
+                            model = thumbnailUrl,
+                            contentDescription = sticker.emoji,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(6.dp),
+                            loading = {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                }
+                            },
+                        )
+                    }
                     if (!isSelected) {
                         Box(
                             modifier = Modifier

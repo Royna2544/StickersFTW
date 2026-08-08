@@ -14,6 +14,7 @@ import com.royna.stickersftw.data.model.PackOperationProgress
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.AppSettings
+import com.royna.stickersftw.model.BackendMode
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
@@ -23,7 +24,10 @@ import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramClientInfo
 import com.royna.stickersftw.model.TelegramClientKind
 import com.royna.stickersftw.model.ThemeMode
-import com.royna.stickersftw.network.RetrofitProvider
+import com.royna.stickersftw.model.backendConfig
+import com.royna.stickersftw.network.ApiResult
+import com.royna.stickersftw.network.TelegramBackendConfig
+import com.royna.stickersftw.network.TelegramBackendProvider
 import com.royna.stickersftw.notifications.PackOperationNotifier
 import java.util.UUID
 import kotlinx.coroutines.Job
@@ -118,7 +122,7 @@ class AppViewModel(
         serverCheckJob?.cancel()
         serverCheckJob = viewModelScope.launch {
             _serverStatus.value = ServerConnectionStatus.Checking
-            val reachable = packRepository.pingServer(settings.value.serverUrl)
+            val reachable = packRepository.pingServer(settings.value.backendConfig)
             _serverStatus.value = if (reachable) ServerConnectionStatus.Connected else ServerConnectionStatus.Failed
         }
     }
@@ -152,6 +156,24 @@ class AppViewModel(
      * server-side, which would make old selected ids stale or wrong. */
     private val _customSelection = MutableStateFlow<Set<String>?>(null)
     val customSelection: StateFlow<Set<String>?> = _customSelection.asStateFlow()
+
+    /** Resolved lazily via [loadCustomPickerThumbnails] when the custom
+     * picker screen is actually opened -- see
+     * [com.royna.stickersftw.data.StickerPackRepository.resolveThumbnailUrls]
+     * for why this isn't just done eagerly on every preview load. */
+    private val _customPickerThumbnails = MutableStateFlow<Map<String, String>>(emptyMap())
+    val customPickerThumbnails: StateFlow<Map<String, String>> = _customPickerThumbnails.asStateFlow()
+
+    fun loadCustomPickerThumbnails() {
+        val preview = _importPreview.value as? ImportPreviewUiState.Loaded ?: return
+        viewModelScope.launch {
+            _customPickerThumbnails.value = packRepository.resolveThumbnailUrls(
+                settings.value.backendConfig,
+                preview.shortName,
+                preview.stickers,
+            )
+        }
+    }
 
     private val _duplicatePrompt = MutableStateFlow<DuplicatePackPrompt?>(null)
     val duplicatePrompt: StateFlow<DuplicatePackPrompt?> = _duplicatePrompt.asStateFlow()
@@ -236,7 +258,7 @@ class AppViewModel(
      * the caller can ask the user whether to save anyway. */
     fun checkAndSaveServerUrl(url: String, onResult: (ServerUrlSaveResult) -> Unit) {
         viewModelScope.launch {
-            if (!settings.value.pingTestsEnabled || packRepository.pingServer(url)) {
+            if (!settings.value.pingTestsEnabled || packRepository.pingServer(TelegramBackendConfig.ServerUrl(url))) {
                 settingsRepository.setServerUrl(url)
                 onResult(ServerUrlSaveResult.Saved)
             } else {
@@ -248,6 +270,32 @@ class AppViewModel(
     /** "Save anyway" after [checkAndSaveServerUrl] reported a failed ping. */
     fun forceSaveServerUrl(url: String) {
         setServerUrl(url)
+    }
+
+    fun setBackendMode(mode: BackendMode) {
+        viewModelScope.launch { settingsRepository.setBackendMode(mode) }
+    }
+
+    fun setBotToken(token: String) {
+        settingsRepository.setBotToken(token)
+    }
+
+    /** Mirrors [checkAndSaveServerUrl]'s ping-before-save flow for the
+     * bot-token dialog. */
+    fun checkAndSaveBotToken(token: String, onResult: (ServerUrlSaveResult) -> Unit) {
+        viewModelScope.launch {
+            if (!settings.value.pingTestsEnabled || packRepository.pingServer(TelegramBackendConfig.BotToken(token))) {
+                settingsRepository.setBotToken(token)
+                onResult(ServerUrlSaveResult.Saved)
+            } else {
+                onResult(ServerUrlSaveResult.ConnectionFailed)
+            }
+        }
+    }
+
+    /** "Save anyway" after [checkAndSaveBotToken] reported a failed ping. */
+    fun forceSaveBotToken(token: String) {
+        setBotToken(token)
     }
 
     fun setThemeMode(mode: ThemeMode) {
@@ -270,12 +318,12 @@ class AppViewModel(
      * failures just leave the username unknown, never surfaced as an error. */
     fun fetchBotUsername() {
         viewModelScope.launch {
-            _botUsername.value = try {
-                val response = RetrofitProvider.apiFor(settings.value.serverUrl).getBotInfo()
-                if (response.isSuccessful) response.body()?.username else null
+            val result = try {
+                TelegramBackendProvider.resolve(settings.value.backendConfig).getBotInfo()
             } catch (_: Exception) {
                 null
             }
+            _botUsername.value = (result as? ApiResult.Success)?.value?.username
         }
     }
 
@@ -290,7 +338,7 @@ class AppViewModel(
 
     fun deletePackAndTelegramSet(packId: String, onResult: (StickerPackRepository.DeleteTelegramResult) -> Unit) {
         viewModelScope.launch {
-            val result = packRepository.deletePackAndTelegramSet(packId, settings.value.serverUrl)
+            val result = packRepository.deletePackAndTelegramSet(packId, settings.value.backendConfig)
             onResult(result)
         }
     }
@@ -299,7 +347,7 @@ class AppViewModel(
 
     fun forceRefreshPack(packId: String, onResult: (StickerPackRepository.ForceRefreshResult) -> Unit) {
         viewModelScope.launch {
-            val result = packRepository.forceRefreshPack(packId, settings.value.serverUrl)
+            val result = packRepository.forceRefreshPack(packId, settings.value.backendConfig)
             onResult(result)
         }
     }
@@ -310,9 +358,10 @@ class AppViewModel(
         // of "the same" pack (edited server-side), so any previously picked
         // custom selection is no longer trustworthy -- start clean.
         _customSelection.value = null
+        _customPickerThumbnails.value = emptyMap()
         _importPreview.value = ImportPreviewUiState.Loading
         viewModelScope.launch {
-            _importPreview.value = when (val result = packRepository.previewTelegramPack(settings.value.serverUrl, input)) {
+            _importPreview.value = when (val result = packRepository.previewTelegramPack(settings.value.backendConfig, input)) {
                 is PreviewResult.Loaded -> ImportPreviewUiState.Loaded(
                     shortName = result.preview.shortName,
                     title = result.preview.title,
@@ -330,6 +379,7 @@ class AppViewModel(
     fun resetPreview() {
         _importPreview.value = ImportPreviewUiState.Idle
         _customSelection.value = null
+        _customPickerThumbnails.value = emptyMap()
     }
 
     /** Enters custom-selection mode for the currently loaded preview, with
@@ -363,7 +413,7 @@ class AppViewModel(
         val selected = _customSelection.value ?: emptySet()
         val shortName = packRepository.extractShortName(lastPreviewInput)
         startImportOrPromptOverwrite(shortName, StickerPackRepository.CUSTOM_PART_INDEX) { packId ->
-            packRepository.importAndConvertCustom(packId, settings.value.serverUrl, lastPreviewInput, selected)
+            packRepository.importAndConvertCustom(packId, settings.value.backendConfig, lastPreviewInput, selected)
         }
     }
 
@@ -375,7 +425,7 @@ class AppViewModel(
     fun startImport(input: String, partIndex: Int = 0) {
         val shortName = packRepository.extractShortName(input)
         startImportOrPromptOverwrite(shortName, partIndex) { packId ->
-            packRepository.importAndConvert(packId, settings.value.serverUrl, input, partIndex)
+            packRepository.importAndConvert(packId, settings.value.backendConfig, input, partIndex)
         }
     }
 
@@ -419,7 +469,7 @@ class AppViewModel(
                 packId,
                 pushToTelegram,
                 addToWhatsapp,
-                settings.value.serverUrl,
+                settings.value.backendConfig,
                 settings.value.telegramUserId,
             )
         }
@@ -434,7 +484,7 @@ class AppViewModel(
         viewModelScope.launch {
             _isRefreshingPacks.value = true
             try {
-                packRepository.checkForUpdates(settings.value.serverUrl)
+                packRepository.checkForUpdates(settings.value.backendConfig)
             } catch (_: Exception) {
                 // Swallowed -- a failed sweep just means no dots update this
                 // time; the user can pull to refresh again.
@@ -450,7 +500,7 @@ class AppViewModel(
      * this reuses the same conversion flow/progress UI as a fresh import. */
     fun requestPackUpdate(packId: String): Boolean {
         resetPreview()
-        return runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.serverUrl) }
+        return runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.backendConfig) }
     }
 
     fun disableUpdatesForPack(packId: String) {

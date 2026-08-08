@@ -28,6 +28,7 @@
 
     <!-- Service status panel -->
     <string name="status_server_title">Server</string>
+    <string name="status_bot_token_mode">Bot token (direct)</string>
     <string name="status_server_ready">Ready</string>
     <string name="status_server_checking">Checking…</string>
     <string name="status_server_unreachable">Unreachable</string>
@@ -76,7 +77,11 @@
 
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>
+    <string name="settings_section_backend">TELEGRAM CONNECTION</string>
+    <string name="backend_mode_server_url">My Server</string>
+    <string name="backend_mode_bot_token">Bot Token</string>
     <string name="settings_section_server_url">SERVER URL</string>
+    <string name="settings_section_bot_token">BOT TOKEN</string>
     <string name="settings_section_telegram_push">TELEGRAM PUSH</string>
     <string name="settings_telegram_push_body">To push a pack to Telegram, message %1$s and send /start, then paste your numeric user ID below (get it from @userinfobot).</string>
     <string name="settings_telegram_push_bot_fallback">the bot configured on your server</string>
@@ -100,6 +105,18 @@
     <string name="server_url_unreachable_title">Couldn\'t reach server</string>
     <string name="server_url_unreachable_message">Couldn\'t connect to %1$s. Save it anyway?</string>
     <string name="action_save_anyway">Save anyway</string>
+    <string name="bot_token_dialog_title">Bot Token</string>
+    <string name="bot_token_dialog_body">The app calls Telegram\'s Bot API directly with this token instead of using a companion server. Get one from @BotFather.</string>
+    <string name="bot_token_dialog_label">Bot token</string>
+    <string name="bot_token_dialog_example">Example: 123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</string>
+    <string name="bot_token_dialog_hint_invalid">Paste the token BotFather gave you</string>
+    <string name="bot_token_dialog_checking">Checking connection…</string>
+    <string name="bot_token_row_placeholder">Not set</string>
+    <string name="bot_token_row_masked">•••• (tap to change)</string>
+    <string name="bot_token_unreachable_title">Couldn\'t verify token</string>
+    <string name="bot_token_unreachable_message">Couldn\'t reach Telegram with this token. Save it anyway?</string>
+    <string name="cd_show_token">Show token</string>
+    <string name="cd_hide_token">Hide token</string>
 
     <!-- Import screen -->
     <string name="import_screen_title">Import Telegram Pack</string>

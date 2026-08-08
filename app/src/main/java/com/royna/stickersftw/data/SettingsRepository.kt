@@ -6,10 +6,13 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.royna.stickersftw.model.AppSettings
+import com.royna.stickersftw.model.BackendMode
 import com.royna.stickersftw.model.ThemeMode
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore(name = "stickers_ftw_settings")
@@ -23,9 +26,17 @@ class SettingsRepository(
         val TelegramUserId = stringPreferencesKey("telegram_user_id")
         val UpdateChecksEnabled = booleanPreferencesKey("update_checks_enabled")
         val PingTestsEnabled = booleanPreferencesKey("ping_tests_enabled")
+        val BackendMode = stringPreferencesKey("backend_mode")
     }
 
-    val settings: Flow<AppSettings> = context.settingsDataStore.data
+    private val secureTokenStore = SecureTokenStore(context)
+
+    /** The bot token lives in [SecureTokenStore] (encrypted), not DataStore
+     * -- this keeps [settings] reactive to token saves the same way it's
+     * reactive to every other DataStore-backed write. */
+    private val botTokenFlow = MutableStateFlow(secureTokenStore.getBotToken())
+
+    private val dataStoreFlow = context.settingsDataStore.data
         .catch { throwable ->
             if (throwable is IOException) {
                 emit(androidx.datastore.preferences.core.emptyPreferences())
@@ -33,22 +44,38 @@ class SettingsRepository(
                 throw throwable
             }
         }
-        .map { preferences ->
-            AppSettings(
-                serverUrl = preferences[Keys.ServerUrl] ?: "http://10.0.2.2:8080",
-                themeMode = preferences[Keys.ThemeMode]
-                    ?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } }
-                    ?: ThemeMode.System,
-                telegramUserId = preferences[Keys.TelegramUserId] ?: "",
-                updateChecksEnabled = preferences[Keys.UpdateChecksEnabled] ?: true,
-                pingTestsEnabled = preferences[Keys.PingTestsEnabled] ?: true,
-            )
-        }
+
+    val settings: Flow<AppSettings> = combine(dataStoreFlow, botTokenFlow) { preferences, botToken ->
+        AppSettings(
+            serverUrl = preferences[Keys.ServerUrl] ?: "http://10.0.2.2:8080",
+            themeMode = preferences[Keys.ThemeMode]
+                ?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } }
+                ?: ThemeMode.System,
+            telegramUserId = preferences[Keys.TelegramUserId] ?: "",
+            updateChecksEnabled = preferences[Keys.UpdateChecksEnabled] ?: true,
+            pingTestsEnabled = preferences[Keys.PingTestsEnabled] ?: true,
+            backendMode = preferences[Keys.BackendMode]
+                ?.let { stored -> BackendMode.entries.firstOrNull { it.name == stored } }
+                ?: BackendMode.ServerUrl,
+            botToken = botToken,
+        )
+    }
 
     suspend fun setServerUrl(url: String) {
         context.settingsDataStore.edit { preferences ->
             preferences[Keys.ServerUrl] = url.trim().trimEnd('/')
         }
+    }
+
+    suspend fun setBackendMode(mode: BackendMode) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[Keys.BackendMode] = mode.name
+        }
+    }
+
+    fun setBotToken(token: String) {
+        secureTokenStore.setBotToken(token)
+        botTokenFlow.value = token.trim()
     }
 
     suspend fun setThemeMode(mode: ThemeMode) {
