@@ -896,14 +896,22 @@ class StickerPackRepository(private val appContext: Context) {
                 .distinct()
                 .take(8),
             whatsappAdded = pack.whatsappAdded,
-            telegramPushState = pack.telegramSetName?.let { fullName ->
-                val pushedCount = sortedStickers.count { it.convertedTelegramPath != null }
-                if (sortedStickers.isNotEmpty() && pushedCount < sortedStickers.size) {
-                    TelegramPushState.Partial(fullName, pushedCount, sortedStickers.size)
-                } else {
-                    TelegramPushState.Pushed(fullName)
-                }
-            } ?: TelegramPushState.NotPushed,
+            // Only a Created pack can be "pushed": an Imported one carries a
+            // telegramSetName too (it's the duplicate-detection key for the
+            // set it came from), and counting its Telegram-converted stickers
+            // gave every imported pack a permanent "On Telegram (0/N)" badge
+            // for a push that was never attempted and makes no sense for it.
+            // This now matches how the push button is already gated.
+            telegramPushState = pack.telegramSetName
+                ?.takeIf { pack.origin == PackOrigin.Created.name }
+                ?.let { fullName ->
+                    val pushedCount = sortedStickers.count { it.convertedTelegramPath != null }
+                    if (sortedStickers.isNotEmpty() && pushedCount < sortedStickers.size) {
+                        TelegramPushState.Partial(fullName, pushedCount, sortedStickers.size)
+                    } else {
+                        TelegramPushState.Pushed(fullName)
+                    }
+                } ?: TelegramPushState.NotPushed,
             updateAvailable = pack.updateAvailable,
             telegramSetName = if (pack.origin == PackOrigin.Imported.name) pack.telegramSetName else null,
             importPartIndex = pack.importPartIndex,

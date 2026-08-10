@@ -4,6 +4,7 @@ import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -318,9 +319,13 @@ private fun PackHeroCard(pack: StickerPack) {
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(10.dp))
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+            // A row, not a column: these are peer badges and reading as a
+            // stack made the card taller than it needed to be. FlowRow so a
+            // pack carrying all of them still wraps instead of overflowing.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 PackStatusChip(pack.status)
                 if (pack.whatsappAdded == true) SuccessBadge(stringResource(R.string.badge_added_to_whatsapp))
