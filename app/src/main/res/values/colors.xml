@@ -6,4 +6,8 @@
          visible hand-off. Keep the two in sync. -->
     <color name="window_background_light">#FFFFF9FD</color>
     <color name="window_background_dark">#FF171219</color>
+
+    <!-- LavenderPrimary, the app's accent. Same value in both themes: a
+         launcher icon doesn't follow the in-app light/dark setting. -->
+    <color name="ic_launcher_background">#FF7152B5</color>
 </resources>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icon foreground: a sticker with its bottom-right corner peeled up.
+
+  The 108dp canvas only guarantees the central 66dp circle is visible; the
+  rest is reserved for the launcher's mask and parallax. The body spans 26..82
+  with a 16dp corner radius, which puts its furthest point 32.97dp from the
+  centre, just inside that circle, so no mask shape can clip it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M26,42 A16,16 0 0 1 42,26 L66,26 A16,16 0 0 1 82,42 L82,60 L60,82 L42,82 A16,16 0 0 1 26,66 Z" />
+    <path
+        android:fillColor="#D2BCFF"
+        android:pathData="M82,60 C66,60 60,66 60,82 L82,60 Z" />
+</vector>

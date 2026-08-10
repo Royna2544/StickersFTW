@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Themed icon layer (Android 13+). The system ignores this drawable's colour
+  and tints the alpha, so the peel cannot be a second fill the way it is in
+  the colour foreground. It is cut out instead: body and crescent share one
+  path with evenOdd fill, which turns the crescent into a hole and leaves the
+  curl reading as a gap. That crescent is drawn shallower than the colour
+  version's, so the silhouette still holds together at launcher size.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M26,42 A16,16 0 0 1 42,26 L66,26 A16,16 0 0 1 82,42 L82,60 L60,82 L42,82 A16,16 0 0 1 26,66 Z M82,60 C70,60 60,70 60,82 L82,60 Z" />
+</vector>
