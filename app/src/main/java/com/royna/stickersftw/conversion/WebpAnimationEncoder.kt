@@ -1,12 +1,5 @@
 package com.royna.stickersftw.conversion
 
-import android.content.Context
-import android.net.Uri
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoder
-import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoderOptions
-import com.aureusapps.android.webpandroid.encoder.WebPConfig
-import com.aureusapps.android.webpandroid.encoder.WebPMuxAnimParams
-import com.aureusapps.android.webpandroid.encoder.WebPPreset
 import com.royna.stickersftw.model.ConversionBias
 import java.io.File
 import kotlin.coroutines.coroutineContext
@@ -23,6 +16,10 @@ object WebpAnimationEncoder {
      * failure mode). Give up with a hard failure instead of shipping either
      * a broken-static or an over-budget file. */
     private const val MIN_FRAMES_FLOOR = 2
+
+    /** libwebp's default effort level. Higher spends more CPU for a smaller
+     * file; the size ladder here already has cheaper levers to pull. */
+    private const val ENCODE_METHOD = 4
 
     /** libwebp leaves the alpha channel lossless by default, which is fine
      * until a sticker actually has one. Once Telegram video stickers started
@@ -54,7 +51,6 @@ object WebpAnimationEncoder {
     }
 
     suspend fun encode(
-        context: Context,
         frames: List<TimedFrame>,
         targetPx: Int,
         output: File,
@@ -75,35 +71,31 @@ object WebpAnimationEncoder {
             for (quality in qualityLadder(bias)) {
                 coroutineContext.ensureActive()
 
-                val encoder = WebPAnimEncoder(
-                    context,
-                    targetPx,
-                    targetPx,
-                    WebPAnimEncoderOptions(
-                        minimizeSize = minimizeSize,
-                        animParams = WebPMuxAnimParams(loopCount = 0),
-                    ),
-                )
-                try {
-                    encoder.configure(
-                        WebPConfig(
-                            lossless = WebPConfig.COMPRESSION_LOSSY,
-                            quality = quality.toFloat(),
-                            alphaQuality = alphaQualityFor(quality),
-                        ),
-                        WebPPreset.WEBP_PRESET_DEFAULT,
-                    )
-                    for (frame in currentFrames) {
-                        coroutineContext.ensureActive()
-                        encoder.addFrame(frame.timestampMs, frame.bitmap)
+                val encoder = NativeWebpAnimEncoder.create(
+                    width = targetPx,
+                    height = targetPx,
+                    loopCount = 0,
+                    minimizeSize = minimizeSize,
+                ) ?: return ConversionOutcome.Failed("Could not start the WebP encoder.")
+
+                val bytes = try {
+                    encoder.use {
+                        if (!it.configure(quality.toFloat(), alphaQualityFor(quality), ENCODE_METHOD)) {
+                            return ConversionOutcome.Failed("Rejected WebP settings at quality $quality.")
+                        }
+                        for (frame in currentFrames) {
+                            coroutineContext.ensureActive()
+                            if (!it.addFrame(frame.bitmap, frame.timestampMs.toInt())) {
+                                return ConversionOutcome.Failed("Could not add a frame to the animation.")
+                            }
+                        }
+                        it.assemble(totalDurationMs.toInt())
                     }
-                    if (output.exists()) output.delete()
-                    encoder.assemble(totalDurationMs, Uri.fromFile(output))
                 } catch (e: Exception) {
-                    encoder.release()
                     return ConversionOutcome.Failed(e.message ?: "Animated WebP encoding failed.")
-                }
-                encoder.release()
+                } ?: return ConversionOutcome.Failed("Could not assemble the animation.")
+
+                output.writeBytes(bytes)
 
                 val size = output.length().toInt()
                 lastSize = size

@@ -20,7 +20,28 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            cmake {
+                // Release-ish flags even in debug: the encoder runs the whole
+                // quality ladder over every frame of a pack, and an -O0 build
+                // of libwebp turns a slow conversion into an unusable one.
+                arguments += listOf("-DANDROID_STL=none")
+                cFlags += listOf("-O2", "-fvisibility=hidden")
+            }
+        }
     }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
+    // r28 and later link 16KB-aligned by default, which is the entire reason
+    // the webp encoder is built from source here rather than taken from a
+    // prebuilt AAR.
+    ndkVersion = "30.0.14904198"
 
     buildTypes {
         release {
@@ -66,7 +87,6 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     implementation(libs.coil.gif)
     implementation(libs.airbnb.lottie)
-    implementation(libs.aureusapps.webp.android)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))

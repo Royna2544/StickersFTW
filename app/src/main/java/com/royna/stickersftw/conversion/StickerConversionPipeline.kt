@@ -37,7 +37,6 @@ object StickerConversionPipeline {
         val isAnimated = frames.size > 1
         val outcome = if (isAnimated) {
             WebpAnimationEncoder.encode(
-                context,
                 frames,
                 SizeBudget.STICKER_PX,
                 output,
@@ -86,7 +85,6 @@ object StickerConversionPipeline {
             // nudgedCopy's doc) -- disabled only for this fallback path,
             // where the whole point is two frames that must stay separate.
             WebpAnimationEncoder.encode(
-                context,
                 animatedFrames,
                 SizeBudget.STICKER_PX,
                 output,
