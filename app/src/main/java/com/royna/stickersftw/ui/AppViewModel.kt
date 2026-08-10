@@ -11,6 +11,7 @@ import com.royna.stickersftw.R
 import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.data.ThemeModeCache
+import com.royna.stickersftw.data.model.PackUpdateDiffResult
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.AppSettings
@@ -156,6 +157,23 @@ class AppViewModel(
     private val _botUsername = MutableStateFlow<String?>(null)
     val botUsername: StateFlow<String?> = _botUsername.asStateFlow()
 
+    /** Null while the fetch is in flight; the screen shows a spinner. Held
+     * per-visit rather than cached, since the whole point is to reflect what
+     * Telegram has right now. */
+    private val _updateDiff = MutableStateFlow<PackUpdateDiffResult?>(null)
+    val updateDiff: StateFlow<PackUpdateDiffResult?> = _updateDiff.asStateFlow()
+
+    fun loadUpdateDiff(packId: String) {
+        _updateDiff.value = null
+        viewModelScope.launch {
+            _updateDiff.value = packRepository.computeUpdateDiff(packId, settings.value.backendConfig)
+        }
+    }
+
+    fun clearUpdateDiff() {
+        _updateDiff.value = null
+    }
+
     private val _isRefreshingPacks = MutableStateFlow(false)
     val isRefreshingPacks: StateFlow<Boolean> = _isRefreshingPacks.asStateFlow()
 
@@ -214,7 +232,11 @@ class AppViewModel(
         // mid-conversion. Without this it stays "Downloading" forever, with
         // no way back other than deleting it.
         if (!PackOperationController.isRunning) {
-            viewModelScope.launch { packRepository.failInterruptedOperations() }
+            viewModelScope.launch {
+                packRepository.failInterruptedOperations().forEach { packId ->
+                    PackOperationNotifier.cancel(getApplication(), packId)
+                }
+            }
         }
     }
 

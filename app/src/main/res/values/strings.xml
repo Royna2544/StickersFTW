@@ -84,12 +84,21 @@
     <string name="duplicate_pack_message">\"%1$s\" is already in My Packs. Overwrite it with this import?</string>
     <string name="action_overwrite">Overwrite</string>
 
+    <!-- Update diff screen -->
+    <string name="update_diff_title">What changed</string>
+    <string name="update_diff_count">%1$d stickers upstream, now %2$d</string>
+    <string name="update_diff_section_title">TITLE</string>
+    <string name="update_diff_section_removed">REMOVED (%1$d)</string>
+    <string name="update_diff_section_added">ADDED (%1$d)</string>
+    <string name="update_diff_section_emoji">EMOJI CHANGED (%1$d)</string>
+    <string name="update_diff_reorder_only">Only the sticker order changed.</string>
+    <string name="update_diff_up_to_date">This pack already matches its Telegram source.</string>
+    <string name="update_diff_no_baseline">This pack was imported before change tracking existed, so there is nothing to compare against. Updating will re-import it from Telegram.</string>
+    <string name="action_review_update">Review update</string>
+
     <!-- Update dialog -->
-    <string name="update_dialog_title">Update available</string>
-    <string name="update_dialog_message">\"%1$s\" has changed on Telegram since it was imported. Update it now? This will re-import it and clear any custom sticker selection.</string>
     <string name="action_update">Update</string>
     <string name="action_disable_updates">Disable updates</string>
-    <string name="action_not_yet">Not yet</string>
 
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>

@@ -52,6 +52,9 @@ interface PackDao {
     )
     suspend fun failUnfinished(message: String): Int
 
+    @Query("SELECT id FROM packs WHERE status IN ('Building', 'Downloading', 'Converting')")
+    suspend fun unfinishedIds(): List<String>
+
     @Query("DELETE FROM packs WHERE id = :id")
     suspend fun delete(id: String)
 

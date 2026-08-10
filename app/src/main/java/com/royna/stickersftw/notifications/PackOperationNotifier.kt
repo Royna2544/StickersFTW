@@ -47,6 +47,14 @@ object PackOperationNotifier {
 
     fun idFor(packId: String): Int = notificationId(packId)
 
+    /** Clears a notification whose operation is no longer running. Needed
+     * because a process that dies mid-operation never reaches
+     * stopForeground, leaving an ongoing notification with nothing behind
+     * it. */
+    fun cancel(context: Context, packId: String) {
+        NotificationManagerCompat.from(context).cancel(notificationId(packId))
+    }
+
     fun showSuccess(context: Context, packId: String, packTitle: String, message: String) {
         post(context, packId, baseBuilder(context, packId, packTitle)
             .setContentText(message)

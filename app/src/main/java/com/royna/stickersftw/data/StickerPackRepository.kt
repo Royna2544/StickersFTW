@@ -18,7 +18,11 @@ import com.royna.stickersftw.data.local.PackWithStickers
 import com.royna.stickersftw.data.local.StickerDao
 import com.royna.stickersftw.data.local.StickerEntity
 import com.royna.stickersftw.data.model.PackOperationProgress
+import com.royna.stickersftw.data.model.EmojiChange
 import com.royna.stickersftw.data.model.PackPreview
+import com.royna.stickersftw.data.model.PackUpdateDiff
+import com.royna.stickersftw.data.model.PackUpdateDiffResult
+import com.royna.stickersftw.data.model.StickerEntry
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.ConversionBias
@@ -896,11 +900,66 @@ class StickerPackRepository(private val appContext: Context) {
 
     // ---- Shared pack management --------------------------------------------
 
+    /** Builds the change list shown before an update is accepted.
+     *
+     * Compares the signature captured at import against a fresh fetch of the
+     * same set. Read-only: nothing is written, so backing out of the preview
+     * leaves the pack exactly as it was. */
+    suspend fun computeUpdateDiff(packId: String, backendConfig: TelegramBackendConfig): PackUpdateDiffResult {
+        val pack = packDao.getPack(packId)
+            ?: return PackUpdateDiffResult.Error(appContext.getString(R.string.err_pack_not_found))
+        val setName = pack.telegramSetName
+            ?: return PackUpdateDiffResult.Error(appContext.getString(R.string.err_no_linked_telegram_source))
+
+        val result = try {
+            TelegramBackendProvider.resolve(backendConfig).getSet(setName)
+        } catch (e: Exception) {
+            return PackUpdateDiffResult.Error(describeNetworkError(e))
+        }
+        val dto = when (result) {
+            is ApiResult.Failure -> return PackUpdateDiffResult.Error(result.error.userMessage)
+            is ApiResult.Success -> result.value
+        }
+
+        if (SourceSignature.compute(dto) == pack.sourceSignature) return PackUpdateDiffResult.UpToDate
+        val before = SourceSignature.parse(pack.sourceSignature) ?: return PackUpdateDiffResult.NoBaseline
+
+        val beforeById = before.stickers.associateBy { it.id }
+        val afterById = dto.stickers.associate { it.id to it.emoji.orEmpty() }
+
+        return PackUpdateDiffResult.Loaded(
+            PackUpdateDiff(
+                titleBefore = before.title,
+                titleAfter = dto.title,
+                added = dto.stickers
+                    .filter { it.id !in beforeById }
+                    .map { StickerEntry(it.id, it.emoji.orEmpty()) },
+                removed = before.stickers
+                    .filter { it.id !in afterById }
+                    .map { StickerEntry(it.id, it.emoji) },
+                emojiChanged = before.stickers.mapNotNull { entry ->
+                    val after = afterById[entry.id] ?: return@mapNotNull null
+                    if (after == entry.emoji) null else EmojiChange(entry.id, entry.emoji, after)
+                },
+                countBefore = before.stickers.size,
+                countAfter = dto.stickers.size,
+            ),
+        )
+    }
+
     /** Marks anything left mid-flight as failed. Called at startup when no
      * operation is running, which can only mean the previous process went
      * away before finishing one. */
-    suspend fun failInterruptedOperations(): Int =
+    suspend fun failInterruptedOperations(): List<String> {
+        // Ids first: the caller needs them to clear the ongoing notifications
+        // those operations left behind. A process that dies never reaches
+        // stopForeground, so the notification outlives the service that owned
+        // it and sits there claiming to be in progress.
+        val ids = packDao.unfinishedIds()
+        if (ids.isEmpty()) return emptyList()
         packDao.failUnfinished(appContext.getString(R.string.err_operation_interrupted))
+        return ids
+    }
 
     suspend fun setPinned(id: String, pinned: Boolean) {
         packDao.setPinned(id, pinned)

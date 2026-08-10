@@ -27,8 +27,11 @@ import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.NotificationsOff
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.Workspaces
@@ -449,7 +452,6 @@ fun PackListCard(
     modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    var showUpdateDialog by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxWidth()) {
     Card(
@@ -544,11 +546,44 @@ fun PackListCard(
                                 Icon(Icons.Rounded.PushPin, contentDescription = null)
                             },
                         )
+                        if (pack.updateAvailable) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_review_update)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onRequestUpdate()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Rounded.Update,
+                                        contentDescription = null,
+                                        tint = UpdateAvailableYellow,
+                                    )
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_disable_updates)) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDisableUpdates()
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Rounded.NotificationsOff, contentDescription = null)
+                                },
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.action_delete)) },
                             onClick = {
                                 menuExpanded = false
                                 onDelete()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
                             },
                         )
                     }
@@ -564,57 +599,13 @@ fun PackListCard(
                     .padding(10.dp)
                     .size(14.dp)
                     .background(UpdateAvailableYellow, CircleShape)
-                    .clickable(onClick = { showUpdateDialog = true }),
+                    .clickable(onClick = onRequestUpdate),
             )
         }
     }
 
-    if (showUpdateDialog) {
-        PackUpdateDialog(
-            packTitle = pack.title,
-            onUpdate = {
-                showUpdateDialog = false
-                onRequestUpdate()
-            },
-            onNotYet = { showUpdateDialog = false },
-            onDisable = {
-                showUpdateDialog = false
-                onDisableUpdates()
-            },
-            onDismiss = { showUpdateDialog = false },
-        )
-    }
 }
 
-@Composable
-private fun PackUpdateDialog(
-    packTitle: String,
-    onUpdate: () -> Unit,
-    onNotYet: () -> Unit,
-    onDisable: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.update_dialog_title)) },
-        text = {
-            Text(stringResource(R.string.update_dialog_message, packTitle))
-        },
-        confirmButton = {
-            Button(onClick = onUpdate) { Text(stringResource(R.string.action_update)) }
-        },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDisable) { Text(stringResource(R.string.action_disable_updates)) }
-                TextButton(onClick = onNotYet) { Text(stringResource(R.string.action_not_yet)) }
-            }
-        },
-    )
-}
-
-/** Full-screen (not a small card dialog) since overwriting silently
- * destroys the existing pack's stickers/files -- this warrants more
- * visual weight than importing a brand-new pack does. */
 @Composable
 fun DuplicatePackOverwriteDialog(
     packTitle: String,

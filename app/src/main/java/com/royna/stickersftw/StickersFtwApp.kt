@@ -48,6 +48,7 @@ import com.royna.stickersftw.ui.screens.CustomStickerPickerScreen
 import com.royna.stickersftw.ui.screens.ImportPackScreen
 import com.royna.stickersftw.ui.screens.MyPacksScreen
 import com.royna.stickersftw.ui.screens.PackDetailScreen
+import com.royna.stickersftw.ui.screens.PackUpdateDiffScreen
 import com.royna.stickersftw.ui.screens.SettingsScreen
 import com.royna.stickersftw.ui.screens.StickerGridScreen
 
@@ -61,10 +62,12 @@ private object Routes {
     const val Detail = "pack/{packId}"
     const val Conversion = "conversion/{packId}"
     const val Grid = "pack/{packId}/grid"
+    const val UpdateDiff = "pack/{packId}/update"
 
     fun detail(packId: String) = "pack/$packId"
     fun conversion(packId: String) = "conversion/$packId"
     fun grid(packId: String) = "pack/$packId/grid"
+    fun updateDiff(packId: String) = "pack/$packId/update"
 }
 
 private data class MainDestination(
@@ -251,9 +254,7 @@ fun StickersFtwApp(
                     isRefreshing = isRefreshingPacks,
                     onRefresh = viewModel::refreshMyPacks,
                     onRequestUpdate = { packId ->
-                        if (viewModel.requestPackUpdate(packId)) {
-                            navController.navigate(Routes.conversion(packId))
-                        }
+                        navController.navigate(Routes.updateDiff(packId))
                     },
                     onDisableUpdates = viewModel::disableUpdatesForPack,
                     contentPadding = scaffoldPadding,
@@ -363,6 +364,28 @@ fun StickersFtwApp(
                         }
                     },
                     onViewAllStickers = { navController.navigate(Routes.grid(it)) },
+                )
+            }
+            composable(Routes.UpdateDiff) { entry ->
+                val id = entry.arguments?.getString("packId").orEmpty()
+                val pack = packs.firstOrNull { it.id == id }
+                val diff by viewModel.updateDiff.collectAsStateWithLifecycle()
+                LaunchedEffect(id) { viewModel.loadUpdateDiff(id) }
+                PackUpdateDiffScreen(
+                    packTitle = pack?.title.orEmpty(),
+                    state = diff,
+                    onBack = {
+                        viewModel.clearUpdateDiff()
+                        navController.popBackStack()
+                    },
+                    onConfirm = {
+                        viewModel.clearUpdateDiff()
+                        if (viewModel.requestPackUpdate(id)) {
+                            navController.navigate(Routes.conversion(id)) {
+                                popUpTo(Routes.UpdateDiff) { inclusive = true }
+                            }
+                        }
+                    },
                 )
             }
             composable(Routes.Grid) { entry ->
