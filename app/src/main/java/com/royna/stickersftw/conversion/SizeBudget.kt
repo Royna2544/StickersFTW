@@ -18,7 +18,20 @@ object SizeBudget {
     const val MIN_FRAME_DURATION_MS = 8L
     const val MAX_TOTAL_DURATION_MS = 10_000L
     const val TELEGRAM_MAX_DURATION_MS = 3_000L
-    const val TARGET_FPS = 20
+
+    /** Matches the rate Telegram video stickers are actually authored at, so
+     * a typical source passes through whole rather than being decimated up
+     * front.
+     *
+     * This was 20, which is not a clean divisor of a 30fps source: sampling
+     * could only land on every second frame, so stickers played at 15fps and
+     * the frames thrown away were gone before the size budget ever got a say.
+     * Keeping them and letting the encoder decide is the better order --
+     * quality is negotiable per sticker, frames that were never decoded are
+     * not. If the budget can't hold them, WebpAnimationEncoder halves the
+     * count, which is a clean 2:1 subdivision and lands back at 15fps evenly
+     * spaced. Anything between those two rates would have to judder. */
+    const val TARGET_FPS = 30
 
     const val MIN_STICKERS = 3
     const val MAX_STICKERS = 30

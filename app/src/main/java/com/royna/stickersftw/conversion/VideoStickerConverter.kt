@@ -62,9 +62,50 @@ object VideoStickerConverter {
         return extractFramesViaExtractor(videoFile, targetPx, maxDurationMs)
     }
 
-    private fun sampleIntervalUs(): Long = (1_000_000.0 / SizeBudget.TARGET_FPS)
-        .coerceAtLeast(SizeBudget.MIN_FRAME_DURATION_MS * 1000.0)
-        .toLong()
+    /** The gap between kept frames, for a source running [durationUs] long.
+     *
+     * Two things set it. The nominal target rate gets 10% of slack, because a
+     * clip authored *at* the target drifts a hair either side of the exact
+     * gap -- this pack's 30fps source has 33000us frames against a 33333us
+     * target, and without slack every single frame lands early enough to be
+     * rejected, so the sticker played at two thirds the rate for no benefit
+     * at all. The slack is far smaller than the step to the next sensible
+     * rate, so a genuinely faster source is still decimated.
+     *
+     * The second is [MAX_FRAMES]. Spreading that budget across the whole
+     * duration matters because the sampling loop stops dead once it's full:
+     * a long clip sampled too densely doesn't get a sparser version of
+     * itself, it gets its first few seconds and nothing after. */
+    private fun sampleIntervalUs(durationUs: Long): Long {
+        val nominal = 1_000_000.0 / SizeBudget.TARGET_FPS * 0.9
+        val spread = if (durationUs > 0) durationUs.toDouble() / MAX_FRAMES else 0.0
+        return maxOf(nominal, spread)
+            .coerceAtLeast(SizeBudget.MIN_FRAME_DURATION_MS * 1000.0)
+            .toLong()
+    }
+
+    /** Decides which decoded frames to keep for [SizeBudget.TARGET_FPS].
+     *
+     * Advances a fixed-step clock along the source's own timeline rather than
+     * measuring the gap since the last frame it kept. Measuring from the last
+     * kept frame aliases badly whenever the source runs faster than the
+     * target: a 30fps source never has two consecutive frames a full 50ms
+     * apart, so every second frame was rejected and the sticker came out at
+     * 15fps; a 25fps source collapsed to 12.5. Anchoring to the timeline lets
+     * the kept frames land unevenly against each other while averaging out at
+     * the target rate, which is the point. A source already at or below the
+     * target still passes through whole. */
+    private class FrameClock(private val intervalUs: Long) {
+        private var nextTargetUs = 0L
+
+        fun accept(ptsUs: Long): Boolean {
+            if (ptsUs < nextTargetUs) return false
+            do {
+                nextTargetUs += intervalUs
+            } while (nextTargetUs <= ptsUs)
+            return true
+        }
+    }
 
     /** Decodes the colour and alpha bitstreams separately and recombines
      * them, which is what WebM alpha requires: the addition is a full VP9
@@ -87,15 +128,14 @@ object VideoStickerConverter {
     ): List<TimedFrame>? {
         if (track.frames.any { it.alpha == null }) return null
 
-        val interval = sampleIntervalUs()
         val maxDurationUs = maxDurationMs * 1000
+        val sourceUs = minOf(track.frames.last().presentationTimeUs, maxDurationUs)
+        val clock = FrameClock(sampleIntervalUs(sourceUs))
         val wanted = LinkedHashSet<Long>()
-        var lastSampledUs = -interval
         for (frame in track.frames) {
             if (frame.presentationTimeUs > maxDurationUs) break
-            if (frame.presentationTimeUs - lastSampledUs < interval) continue
+            if (!clock.accept(frame.presentationTimeUs)) continue
             wanted += frame.presentationTimeUs
-            lastSampledUs = frame.presentationTimeUs
             if (wanted.size >= MAX_FRAMES) break
         }
         if (wanted.isEmpty()) return null
@@ -204,14 +244,18 @@ object VideoStickerConverter {
             decoder.configure(format, null, null, 0)
             decoder.start()
 
-            val interval = sampleIntervalUs()
             val maxDurationUs = maxDurationMs * 1000
+            val declaredUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
+                format.getLong(MediaFormat.KEY_DURATION)
+            } else {
+                maxDurationUs
+            }
+            val clock = FrameClock(sampleIntervalUs(minOf(declaredUs, maxDurationUs)))
 
             val collected = mutableListOf<TimedFrame>()
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
-            var lastSampledUs = -interval
 
             while (!outputDone && collected.size < MAX_FRAMES) {
                 coroutineContext.ensureActive()
@@ -235,8 +279,8 @@ object VideoStickerConverter {
                 if (outIndex >= 0) {
                     val ptsUs = bufferInfo.presentationTimeUs
                     val shouldSample = bufferInfo.size > 0 &&
-                        ptsUs - lastSampledUs >= interval &&
-                        ptsUs <= maxDurationUs
+                        ptsUs <= maxDurationUs &&
+                        clock.accept(ptsUs)
                     if (shouldSample) {
                         decoder.getOutputImage(outIndex)?.use { image ->
                             val bitmap = imageToBitmap(image, null)
@@ -244,7 +288,6 @@ object VideoStickerConverter {
                                 ptsUs / 1000,
                                 BitmapPrep.centerCropSquareAndScale(bitmap, targetPx),
                             )
-                            lastSampledUs = ptsUs
                         }
                     }
                     decoder.releaseOutputBuffer(outIndex, false)
