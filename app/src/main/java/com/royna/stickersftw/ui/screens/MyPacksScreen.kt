@@ -1,42 +1,39 @@
 package com.royna.stickersftw.ui.screens
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Movie
-import androidx.compose.material.icons.rounded.Photo
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.ConversionUiState
+import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.PackListCard
 import com.royna.stickersftw.ui.components.PageHeader
@@ -66,25 +64,26 @@ fun MyPacksScreen(
     onResumeConversion: (String) -> Unit = {},
 ) {
     var query by rememberSaveable { mutableStateOf("") }
-    // true = animated-only, false = static-only, null = no type filter --
-    // picked from the search field's suggestions rather than typed text,
-    // since "animated"/"static" aren't part of any pack's title/author.
-    var typeFilter by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    val searchInteractionSource = remember { MutableInteractionSource() }
-    val isSearchFocused by searchInteractionSource.collectIsFocusedAsState()
+    var activeFilters by rememberSaveable(stateSaver = PackFilterSetSaver) {
+        mutableStateOf(emptySet<PackFilter>())
+    }
 
-    val animatedCount = packs.count { it.isAnimated }
-    val staticCount = packs.size - animatedCount
+    // Chips are offered for the properties this library actually has, so an
+    // account with no created packs isn't shown a "Created" chip that can
+    // only ever empty the list. An active filter keeps its chip regardless,
+    // otherwise filtering the last matching pack away would hide the control
+    // still doing the filtering.
+    val availableFilters = PackFilter.entries.filter { filter ->
+        filter in activeFilters || packs.any(filter.matches)
+    }
     val filteredPacks = packs.filter { pack ->
-        (typeFilter == null || pack.isAnimated == typeFilter) &&
+        pack.matchesFilters(activeFilters) &&
             (
                 query.isBlank() ||
                     pack.title.contains(query, ignoreCase = true) ||
                     pack.author.contains(query, ignoreCase = true)
                 )
     }
-    val showSuggestions = isSearchFocused && query.isBlank() && typeFilter == null &&
-        (animatedCount > 0 || staticCount > 0)
 
     Column(
         modifier = Modifier
@@ -100,7 +99,6 @@ fun MyPacksScreen(
             value = query,
             onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            interactionSource = searchInteractionSource,
             placeholder = { Text(stringResource(R.string.search_packs_placeholder)) },
             leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
             singleLine = true,
@@ -112,50 +110,59 @@ fun MyPacksScreen(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
             ),
         )
-        if (showSuggestions) {
-            Spacer(Modifier.height(10.dp))
-            Card(
+        if (availableFilters.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            LazyRow(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Column {
-                    if (animatedCount > 0) {
-                        SearchSuggestionRow(
-                            icon = Icons.Rounded.Movie,
-                            label = stringResource(R.string.search_suggestion_animated_packs, animatedCount),
-                            onClick = { typeFilter = true },
-                        )
-                    }
-                    if (staticCount > 0) {
-                        SearchSuggestionRow(
-                            icon = Icons.Rounded.Photo,
-                            label = stringResource(R.string.search_suggestion_static_packs, staticCount),
-                            onClick = { typeFilter = false },
-                        )
-                    }
-                }
-            }
-        }
-        if (typeFilter != null) {
-            Spacer(Modifier.height(10.dp))
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                shape = RoundedCornerShape(100.dp),
-            ) {
-                Row(
-                    modifier = Modifier.padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = stringResource(
-                            if (typeFilter == true) R.string.search_suggestion_animated_packs_label else R.string.search_suggestion_static_packs_label,
+                items(availableFilters, key = { it.name }) { filter ->
+                    val selected = filter in activeFilters
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            activeFilters = if (selected) {
+                                activeFilters - filter
+                            } else {
+                                activeFilters + filter
+                            }
+                        },
+                        label = { Text(stringResource(filter.labelRes)) },
+                        leadingIcon = if (selected) {
+                            {
+                                Icon(
+                                    Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        // Material3 pairs a selected chip with secondaryContainer,
+                        // which is Telegram blue's container here. The rest of
+                        // the app's selected states are the primaryContainer
+                        // lavender, so match that.
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
                         ),
-                        style = MaterialTheme.typography.labelLarge,
                     )
-                    IconButton(onClick = { typeFilter = null }, modifier = Modifier.height(28.dp)) {
-                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cd_clear_filter))
+                }
+                if (activeFilters.isNotEmpty()) {
+                    item(key = "clear") {
+                        AssistChip(
+                            onClick = { activeFilters = emptySet() },
+                            label = { Text(stringResource(R.string.pack_filters_clear)) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.Close,
+                                    contentDescription = stringResource(R.string.cd_clear_filters),
+                                    modifier = Modifier.size(AssistChipDefaults.IconSize),
+                                )
+                            },
+                        )
                     }
                 }
             }
@@ -195,7 +202,11 @@ fun MyPacksScreen(
                 if (filteredPacks.isEmpty()) {
                     Text(
                         text = stringResource(
-                            if (query.isBlank() && typeFilter == null) R.string.my_packs_empty else R.string.my_packs_search_no_results,
+                            if (query.isBlank() && activeFilters.isEmpty()) {
+                                R.string.my_packs_empty
+                            } else {
+                                R.string.my_packs_search_no_results
+                            },
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
@@ -207,21 +218,41 @@ fun MyPacksScreen(
     }
 }
 
-@Composable
-private fun SearchSuggestionRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
+/** A single filter chip above the pack list.
+ *
+ * Chips sharing a [group] are alternatives and OR together; separate groups
+ * AND. So Animated + Imported narrows to imported animated packs, while
+ * Animated + Static widens back to everything -- which is what picking
+ * "either type" should mean. Filters that stand alone (Pinned, Updates) each
+ * get their own group, so a one-member OR leaves them as plain AND toggles
+ * and the rule stays uniform. */
+private enum class PackFilter(
+    val group: Group,
+    @StringRes val labelRes: Int,
+    val matches: (StickerPack) -> Boolean,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.width(14.dp))
-        Text(text = label, style = MaterialTheme.typography.bodyLarge)
-    }
+    Pinned(Group.Pinned, R.string.pack_filter_pinned, { it.isPinned }),
+    UpdateAvailable(Group.Updates, R.string.pack_filter_update_available, { it.updateAvailable }),
+    Animated(Group.Type, R.string.pack_filter_animated, { it.isAnimated }),
+    Static(Group.Type, R.string.pack_filter_static, { !it.isAnimated }),
+    Imported(Group.Origin, R.string.pack_filter_imported, { it.origin == PackOrigin.Imported }),
+    Created(Group.Origin, R.string.pack_filter_created, { it.origin == PackOrigin.Created }),
+    ;
+
+    enum class Group { Pinned, Updates, Type, Origin }
 }
+
+private fun StickerPack.matchesFilters(active: Set<PackFilter>): Boolean =
+    active.groupBy { it.group }.values.all { group -> group.any { it.matches(this) } }
+
+/** Enums aren't bundle-storable, so the selection round-trips through
+ * process death as its member names. Unknown names are dropped rather than
+ * throwing, which keeps a saved state from an older build harmless. */
+private val PackFilterSetSaver = listSaver<Set<PackFilter>, String>(
+    save = { filters -> filters.map { it.name } },
+    restore = { names ->
+        names.mapNotNullTo(mutableSetOf()) { name ->
+            PackFilter.entries.firstOrNull { it.name == name }
+        }
+    },
+)
