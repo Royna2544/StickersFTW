@@ -555,10 +555,22 @@ class AppViewModel(
         }
 
         operationJob?.cancel()
-        _conversion.value = ConversionUiState(packId = packId, stage = "Starting", isRunning = true)
+        val startedAt = System.currentTimeMillis()
+        _conversion.value = ConversionUiState(
+            packId = packId,
+            stage = "Starting",
+            isRunning = true,
+            startedAtMillis = startedAt,
+        )
         operationJob = viewModelScope.launch {
+            // Sticky: only the stages that know the pack's media types carry
+            // the flag, so latching it here keeps the warning on screen for
+            // the rest of the run instead of flickering off at the next
+            // stage that doesn't set it.
+            var slowFormat = false
             flowFactory().collect { progress ->
-                _conversion.value = progress.toUiState(packId)
+                if (progress is PackOperationProgress.Progress && progress.slowFormat) slowFormat = true
+                _conversion.value = progress.toUiState(packId, startedAt, slowFormat)
                 notifyBackgroundProgress(packId, progress)
             }
         }
@@ -587,12 +599,18 @@ class AppViewModel(
         }
     }
 
-    private fun PackOperationProgress.toUiState(packId: String): ConversionUiState = when (this) {
+    private fun PackOperationProgress.toUiState(
+        packId: String,
+        startedAtMillis: Long,
+        slowFormat: Boolean,
+    ): ConversionUiState = when (this) {
         is PackOperationProgress.Progress -> ConversionUiState(
             packId = packId,
             stage = stage,
             progress = fraction,
             isRunning = true,
+            startedAtMillis = startedAtMillis,
+            isSlowFormat = slowFormat,
         )
         is PackOperationProgress.Complete -> ConversionUiState(
             packId = packId,
@@ -600,12 +618,16 @@ class AppViewModel(
             progress = 1f,
             isRunning = false,
             isComplete = true,
+            startedAtMillis = startedAtMillis,
+            isSlowFormat = slowFormat,
         )
         is PackOperationProgress.Failed -> ConversionUiState(
             packId = packId,
             stage = "Failed",
             isRunning = false,
             errorMessage = message,
+            startedAtMillis = startedAtMillis,
+            isSlowFormat = slowFormat,
         )
     }
 

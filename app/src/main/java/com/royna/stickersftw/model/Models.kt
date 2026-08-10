@@ -143,6 +143,13 @@ data class ConversionUiState(
     val isComplete: Boolean = false,
     val errorMessage: String? = null,
     val warningMessage: String? = null,
+    /** When the operation started, for the elapsed-time readout. Held here
+     * rather than in the screen so it survives navigating away and back, and
+     * so a "run in background" operation still reports its real total. */
+    val startedAtMillis: Long = 0L,
+    /** The pack contains video stickers, which take minutes rather than
+     * seconds. Sticky once seen. */
+    val isSlowFormat: Boolean = false,
 )
 
 enum class PickedMediaKind {

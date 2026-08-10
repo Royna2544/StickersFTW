@@ -546,12 +546,19 @@ class StickerPackRepository(private val appContext: Context) {
         var firstConvertedType: StickerMediaType? = null
         val convertedForFixup = mutableListOf<WhatsappConvertedSticker>()
 
+        // Known only now that every sticker has been downloaded and
+        // classified -- the server backend gives no usable type up front.
+        // Downloads are the quick part, so this still lands well before the
+        // conversion the user would otherwise sit through wondering.
+        val slowFormat = downloadedFiles.any { (_, _, type) -> type == StickerMediaType.Video }
+
         for ((index, item) in downloadedFiles.withIndex()) {
             val (remoteId, file, type) = item
             emit(
                 PackOperationProgress.Progress(
                     appContext.getString(R.string.stage_converting_sticker, index + 1, downloadedFiles.size),
                     0.45f + 0.40f * (index + 1) / downloadedFiles.size,
+                    slowFormat = slowFormat,
                 ),
             )
             val outputFile = File(convertedDir, "${sanitizeFileName(remoteId)}.webp")
@@ -708,6 +715,8 @@ class StickerPackRepository(private val appContext: Context) {
         var firstConvertedType: StickerMediaType? = null
         val convertedForFixup = mutableListOf<WhatsappConvertedSticker>()
 
+        val slowFormat = localFiles.any { (sticker, _) -> sticker.isVideo }
+
         if (addToWhatsapp) {
             for ((index, entry) in localFiles.withIndex()) {
                 val (sticker, file) = entry
@@ -715,6 +724,7 @@ class StickerPackRepository(private val appContext: Context) {
                     PackOperationProgress.Progress(
                         appContext.getString(R.string.stage_converting_whatsapp, index + 1, localFiles.size),
                         0.2f + 0.3f * (index + 1) / localFiles.size,
+                        slowFormat = slowFormat,
                     ),
                 )
                 val type = if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static

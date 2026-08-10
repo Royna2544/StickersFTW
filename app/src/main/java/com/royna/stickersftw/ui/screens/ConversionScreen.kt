@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.HourglassTop
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +32,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -38,6 +42,14 @@ import com.royna.stickersftw.R
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.components.AddToWhatsAppButton
+import kotlinx.coroutines.delay
+
+/** m:ss -- these run into minutes for a video pack, and an hours component
+ * would be claiming a range the size caps make impossible. */
+private fun formatElapsed(elapsedMs: Long): String {
+    val seconds = (elapsedMs / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(seconds / 60, seconds % 60)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +86,21 @@ fun ConversionScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             val hasError = state.errorMessage != null
+
+            // Ticks once a second while the operation runs, then re-runs once
+            // on the transition to finished so the figure that stays on screen
+            // is the real total rather than whatever the last tick caught.
+            val elapsedMs by produceState(0L, state.startedAtMillis, state.isRunning) {
+                if (state.startedAtMillis <= 0L) {
+                    value = 0L
+                    return@produceState
+                }
+                while (true) {
+                    value = System.currentTimeMillis() - state.startedAtMillis
+                    if (!state.isRunning) break
+                    delay(1_000)
+                }
+            }
 
             Surface(
                 modifier = Modifier.size(104.dp),
@@ -136,6 +163,38 @@ fun ConversionScreen(
                 )
             }
 
+            if (state.isSlowFormat && !state.isComplete && !hasError) {
+                Spacer(Modifier.height(24.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                ) {
+                    Row(modifier = Modifier.padding(16.dp)) {
+                        Icon(
+                            Icons.Rounded.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = stringResource(R.string.conversion_slow_title),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = stringResource(R.string.conversion_slow_body),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(28.dp))
 
             if (pack != null) {
@@ -153,6 +212,9 @@ fun ConversionScreen(
                         InfoRow(stringResource(R.string.conversion_pack_label), pack.title)
                         InfoRow(stringResource(R.string.conversion_stickers_label), pack.stickerCount.toString())
                         InfoRow(stringResource(R.string.conversion_processing_label), stringResource(R.string.conversion_processing_value))
+                        if (state.startedAtMillis > 0L) {
+                            InfoRow(stringResource(R.string.conversion_elapsed_label), formatElapsed(elapsedMs))
+                        }
                     }
                 }
             }
