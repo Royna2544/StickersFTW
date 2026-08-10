@@ -3,6 +3,7 @@ package com.royna.stickersftw.conversion
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import com.royna.stickersftw.model.ConversionBias
 import java.io.File
 
 /** Orchestrates per-sticker conversion for both destinations. */
@@ -26,6 +27,7 @@ object StickerConversionPipeline {
         input: File,
         output: File,
         stickerType: StickerMediaType,
+        bias: ConversionBias = ConversionBias.Auto,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
@@ -40,6 +42,7 @@ object StickerConversionPipeline {
                 SizeBudget.STICKER_PX,
                 output,
                 SizeBudget.ANIMATED_MAX_BYTES,
+                bias = bias,
             )
         } else {
             StaticStickerConverter.compressWithBudget(frames.first().bitmap, output, SizeBudget.STATIC_MAX_BYTES)
@@ -64,6 +67,7 @@ object StickerConversionPipeline {
         output: File,
         stickerType: StickerMediaType,
         forceAnimated: Boolean,
+        bias: ConversionBias = ConversionBias.Auto,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
@@ -88,6 +92,7 @@ object StickerConversionPipeline {
                 output,
                 SizeBudget.ANIMATED_MAX_BYTES,
                 minimizeSize = false,
+                bias = bias,
             )
         } else {
             StaticStickerConverter.compressWithBudget(frames.first().bitmap, output, SizeBudget.STATIC_MAX_BYTES)

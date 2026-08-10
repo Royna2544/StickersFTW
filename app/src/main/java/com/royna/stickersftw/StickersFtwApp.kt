@@ -272,6 +272,7 @@ fun StickersFtwApp(
                     onCheckAndSaveBotToken = viewModel::checkAndSaveBotToken,
                     onForceSaveBotToken = viewModel::forceSaveBotToken,
                     onSetThemeMode = viewModel::setThemeMode,
+                    onSetConversionBias = viewModel::setConversionBias,
                     onSetTelegramUserId = viewModel::setTelegramUserId,
                     onSetUpdateChecksEnabled = viewModel::setUpdateChecksEnabled,
                     onSetPingTestsEnabled = viewModel::setPingTestsEnabled,

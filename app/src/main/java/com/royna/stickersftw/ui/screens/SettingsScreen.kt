@@ -1,5 +1,6 @@
 package com.royna.stickersftw.ui.screens
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -33,6 +34,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -55,10 +59,25 @@ import com.royna.stickersftw.BuildConfig
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.BackendMode
+import com.royna.stickersftw.model.ConversionBias
 import com.royna.stickersftw.model.ThemeMode
 import com.royna.stickersftw.ui.ServerUrlSaveResult
 import com.royna.stickersftw.ui.components.PageHeader
 import com.royna.stickersftw.ui.theme.appButtonColors
+
+@StringRes
+private fun ConversionBias.labelRes(): Int = when (this) {
+    ConversionBias.Sharpness -> R.string.conversion_bias_sharpness
+    ConversionBias.Auto -> R.string.conversion_bias_auto
+    ConversionBias.Smoothness -> R.string.conversion_bias_smoothness
+}
+
+@StringRes
+private fun ConversionBias.bodyRes(): Int = when (this) {
+    ConversionBias.Sharpness -> R.string.conversion_bias_sharpness_body
+    ConversionBias.Auto -> R.string.conversion_bias_auto_body
+    ConversionBias.Smoothness -> R.string.conversion_bias_smoothness_body
+}
 
 @Composable
 fun SettingsScreen(
@@ -71,6 +90,7 @@ fun SettingsScreen(
     onCheckAndSaveBotToken: (token: String, onResult: (ServerUrlSaveResult) -> Unit) -> Unit,
     onForceSaveBotToken: (String) -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
+    onSetConversionBias: (ConversionBias) -> Unit,
     onSetTelegramUserId: (String) -> Unit,
     onSetUpdateChecksEnabled: (Boolean) -> Unit,
     onSetPingTestsEnabled: (Boolean) -> Unit,
@@ -308,6 +328,47 @@ fun SettingsScreen(
                 Switch(
                     checked = settings.pingTestsEnabled,
                     onCheckedChange = onSetPingTestsEnabled,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(28.dp))
+        Text(
+            text = stringResource(R.string.settings_section_conversion_bias),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(25.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    ConversionBias.entries.forEachIndexed { index, bias ->
+                        SegmentedButton(
+                            selected = settings.conversionBias == bias,
+                            onClick = { onSetConversionBias(bias) },
+                            shape = SegmentedButtonDefaults.itemShape(index, ConversionBias.entries.size),
+                            colors = SegmentedButtonDefaults.colors(
+                                activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                activeContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                        ) {
+                            Text(stringResource(bias.labelRes()))
+                        }
+                    }
+                }
+                Text(
+                    text = stringResource(settings.conversionBias.bodyRes()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

@@ -7,6 +7,7 @@ import com.aureusapps.android.webpandroid.encoder.WebPAnimEncoderOptions
 import com.aureusapps.android.webpandroid.encoder.WebPConfig
 import com.aureusapps.android.webpandroid.encoder.WebPMuxAnimParams
 import com.aureusapps.android.webpandroid.encoder.WebPPreset
+import com.royna.stickersftw.model.ConversionBias
 import java.io.File
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
@@ -38,6 +39,20 @@ object WebpAnimationEncoder {
      * before. */
     private fun alphaQualityFor(quality: Int): Int = (quality + 20).coerceIn(0, 100)
 
+    /** The bias is expressed entirely as how far the quality ladder is
+     * allowed to fall before the encoder gives up and halves the frame count
+     * instead. Everything is tried at the full frame count first, so a longer
+     * ladder means frames survive at lower quality and a shorter one means
+     * the encoder reaches for the frame cut sooner.
+     *
+     * [ConversionBias.Smoothness] costs real time: two extra encode passes
+     * over the whole animation before the first frame is ever dropped. */
+    private fun qualityLadder(bias: ConversionBias): IntArray = when (bias) {
+        ConversionBias.Sharpness -> intArrayOf(80, 65)
+        ConversionBias.Auto -> SizeBudget.QUALITY_STEPS
+        ConversionBias.Smoothness -> intArrayOf(80, 65, 50, 35, 20, 12, 8)
+    }
+
     suspend fun encode(
         context: Context,
         frames: List<TimedFrame>,
@@ -45,6 +60,7 @@ object WebpAnimationEncoder {
         output: File,
         maxBytes: Int,
         minimizeSize: Boolean = true,
+        bias: ConversionBias = ConversionBias.Auto,
     ): ConversionOutcome {
         if (frames.isEmpty()) return ConversionOutcome.Failed("No frames to encode.")
 
@@ -56,7 +72,7 @@ object WebpAnimationEncoder {
             coroutineContext.ensureActive()
             val totalDurationMs = (currentFrames.last().timestampMs + frameIntervalEstimate(currentFrames)).coerceAtLeast(1L)
 
-            for (quality in SizeBudget.QUALITY_STEPS) {
+            for (quality in qualityLadder(bias)) {
                 coroutineContext.ensureActive()
 
                 val encoder = WebPAnimEncoder(

@@ -52,6 +52,13 @@
     <string name="search_packs_placeholder">Search packs…</string>
     <string name="pack_placeholder_title">Importing…</string>
     <string name="conversion_elapsed_label">Elapsed</string>
+    <string name="settings_section_conversion_bias">Animated stickers</string>
+    <string name="conversion_bias_sharpness">Sharper</string>
+    <string name="conversion_bias_auto">Auto</string>
+    <string name="conversion_bias_smoothness">Smoother</string>
+    <string name="conversion_bias_sharpness_body">Keeps the picture crisp and drops frames to fit. Fastest to convert.</string>
+    <string name="conversion_bias_auto_body">Balances the two. Trades quality first, and only drops frames if that isn\'t enough.</string>
+    <string name="conversion_bias_smoothness_body">Keeps every frame it can and lets quality fall further to fit. Slower to convert, and video stickers may look soft.</string>
     <string name="conversion_slow_title">This one takes a while</string>
     <string name="conversion_slow_body">Video stickers are slow to convert. Every frame is decoded twice, once for the picture and once for the transparency, then the pack is re-encoded at lower and lower quality until each sticker fits WhatsApp\'s 500KB limit. Expect minutes rather than seconds. You can leave it running in the background.</string>
     <string name="my_packs_empty">No packs yet</string>

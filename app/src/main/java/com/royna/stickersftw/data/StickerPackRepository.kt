@@ -21,6 +21,7 @@ import com.royna.stickersftw.data.model.PackOperationProgress
 import com.royna.stickersftw.data.model.PackPreview
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
+import com.royna.stickersftw.model.ConversionBias
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.PickedMediaItem
@@ -145,6 +146,7 @@ class StickerPackRepository(private val appContext: Context) {
         backendConfig: TelegramBackendConfig,
         input: String,
         partIndex: Int = 0,
+        bias: ConversionBias = ConversionBias.Auto,
     ): Flow<PackOperationProgress> = flow {
         placeholderPack(packId, input, partIndex)
         val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
@@ -164,7 +166,7 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
@@ -176,7 +178,11 @@ class StickerPackRepository(private val appContext: Context) {
      * with (always 0 for a custom or single-part import) -- this is what
      * "Update" means: not a merge/reconciliation, a fresh re-import under
      * the same pack id. */
-    fun applyPackUpdate(packId: String, backendConfig: TelegramBackendConfig): Flow<PackOperationProgress> = flow {
+    fun applyPackUpdate(
+        packId: String,
+        backendConfig: TelegramBackendConfig,
+        bias: ConversionBias = ConversionBias.Auto,
+    ): Flow<PackOperationProgress> = flow {
         val pack = packDao.getPack(packId) ?: run {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
             return@flow
@@ -200,7 +206,7 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_update_failed)
         finalizePackFailed(packId, message)
@@ -276,6 +282,7 @@ class StickerPackRepository(private val appContext: Context) {
         backendConfig: TelegramBackendConfig,
         input: String,
         selectedIds: Set<String>,
+        bias: ConversionBias = ConversionBias.Auto,
     ): Flow<PackOperationProgress> = flow {
         placeholderPack(packId, input, CUSTOM_PART_INDEX)
         val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
@@ -291,7 +298,7 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX, bias)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
@@ -432,6 +439,7 @@ class StickerPackRepository(private val appContext: Context) {
         stickerDtos: List<StickerDto>,
         titleSuffix: String,
         partIndex: Int = 0,
+        bias: ConversionBias = ConversionBias.Auto,
     ) {
         val backend = TelegramBackendProvider.resolve(backendConfig)
         val now = System.currentTimeMillis()
@@ -563,7 +571,7 @@ class StickerPackRepository(private val appContext: Context) {
             )
             val outputFile = File(convertedDir, "${sanitizeFileName(remoteId)}.webp")
             when (
-                val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, outputFile, type)
+                val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, outputFile, type, bias)
             ) {
                 is StickerConvertResult.Success -> {
                     convertedCount++
@@ -591,7 +599,7 @@ class StickerPackRepository(private val appContext: Context) {
         // Derived from what conversion actually produced, not from the
         // source's nominal format -- see StickerConversionPipeline.
         val packIsAnimated = animatedCount >= staticCount && animatedCount > 0
-        reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated)
+        reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated, bias)
 
         if (convertedCount == 0) {
             val message = appContext.getString(R.string.err_no_stickers_converted)
@@ -668,6 +676,7 @@ class StickerPackRepository(private val appContext: Context) {
         addToWhatsapp: Boolean,
         backendConfig: TelegramBackendConfig,
         telegramUserId: String,
+        bias: ConversionBias = ConversionBias.Auto,
     ): Flow<PackOperationProgress> = flow {
         val pack = packDao.getPack(packId) ?: run {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
@@ -730,7 +739,7 @@ class StickerPackRepository(private val appContext: Context) {
                 val type = if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static
                 val output = File(packDir, "converted/${sticker.rowId}.webp")
                 when (
-                    val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, output, type)
+                    val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, output, type, bias)
                 ) {
                     is StickerConvertResult.Success -> {
                         whatsappConvertedCount++
@@ -761,7 +770,7 @@ class StickerPackRepository(private val appContext: Context) {
                 localFiles.map { (sticker, _) -> if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static },
             )
         }
-        reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated)
+        reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated, bias)
 
         var telegramPushedFullName: String? = pack.telegramSetName
         var telegramPushWarning: String? = null
@@ -1025,6 +1034,7 @@ class StickerPackRepository(private val appContext: Context) {
     private suspend fun reconcileWhatsappAnimatedMismatches(
         stickers: List<WhatsappConvertedSticker>,
         packIsAnimated: Boolean,
+        bias: ConversionBias,
     ) {
         for (sticker in stickers) {
             if (sticker.isAnimated == packIsAnimated) continue
@@ -1034,6 +1044,7 @@ class StickerPackRepository(private val appContext: Context) {
                 sticker.output,
                 sticker.type,
                 forceAnimated = packIsAnimated,
+                bias = bias,
             )
         }
     }

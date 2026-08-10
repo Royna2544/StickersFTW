@@ -8,6 +8,20 @@ enum class ThemeMode {
     Dark,
 }
 
+/** Which way the animated-WebP encoder should give ground when a sticker
+ * won't fit WhatsApp's size cap: drop picture quality and keep the frames, or
+ * drop frames and keep the picture sharp.
+ *
+ * Both ends still fill the same cap, so this barely moves the output size --
+ * it decides what the budget is spent on. [Smoothness] also makes conversion
+ * noticeably slower, since more encode attempts happen at the full frame
+ * count before anything is given up. */
+enum class ConversionBias {
+    Sharpness,
+    Auto,
+    Smoothness,
+}
+
 /** How the app talks to Telegram: through a self-hosted companion server,
  * or directly against `api.telegram.org` using a user-supplied bot token.
  * See [AppSettings.backendConfig]. */
@@ -23,6 +37,7 @@ data class AppSettings(
     val updateChecksEnabled: Boolean = true,
     val pingTestsEnabled: Boolean = true,
     val backendMode: BackendMode = BackendMode.ServerUrl,
+    val conversionBias: ConversionBias = ConversionBias.Auto,
     /** Stored encrypted at rest -- see `data.SecureTokenStore`, not plain
      * DataStore like the other fields here. */
     val botToken: String = "",

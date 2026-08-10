@@ -16,6 +16,7 @@ import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.BackendMode
+import com.royna.stickersftw.model.ConversionBias
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
@@ -308,6 +309,10 @@ class AppViewModel(
         viewModelScope.launch { settingsRepository.setThemeMode(mode) }
     }
 
+    fun setConversionBias(bias: ConversionBias) {
+        viewModelScope.launch { settingsRepository.setConversionBias(bias) }
+    }
+
     fun setTelegramUserId(userId: String) {
         viewModelScope.launch { settingsRepository.setTelegramUserId(userId) }
     }
@@ -419,7 +424,13 @@ class AppViewModel(
         val selected = _customSelection.value ?: emptySet()
         val shortName = packRepository.extractShortName(lastPreviewInput)
         startImportOrPromptOverwrite(shortName, StickerPackRepository.CUSTOM_PART_INDEX) { packId ->
-            packRepository.importAndConvertCustom(packId, settings.value.backendConfig, lastPreviewInput, selected)
+            packRepository.importAndConvertCustom(
+                packId,
+                settings.value.backendConfig,
+                lastPreviewInput,
+                selected,
+                settings.value.conversionBias,
+            )
         }
     }
 
@@ -431,7 +442,13 @@ class AppViewModel(
     fun startImport(input: String, partIndex: Int = 0) {
         val shortName = packRepository.extractShortName(input)
         startImportOrPromptOverwrite(shortName, partIndex) { packId ->
-            packRepository.importAndConvert(packId, settings.value.backendConfig, input, partIndex)
+            packRepository.importAndConvert(
+                packId,
+                settings.value.backendConfig,
+                input,
+                partIndex,
+                settings.value.conversionBias,
+            )
         }
     }
 
@@ -483,6 +500,7 @@ class AppViewModel(
                 addToWhatsapp,
                 settings.value.backendConfig,
                 settings.value.telegramUserId,
+                settings.value.conversionBias,
             )
         }
 
@@ -512,7 +530,7 @@ class AppViewModel(
      * this reuses the same conversion flow/progress UI as a fresh import. */
     fun requestPackUpdate(packId: String): Boolean {
         resetPreview()
-        return runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.backendConfig) }
+        return runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.backendConfig, settings.value.conversionBias) }
     }
 
     fun disableUpdatesForPack(packId: String) {

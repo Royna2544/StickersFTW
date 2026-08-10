@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.royna.stickersftw.model.AppSettings
 import com.royna.stickersftw.model.BackendMode
+import com.royna.stickersftw.model.ConversionBias
 import com.royna.stickersftw.model.ThemeMode
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +28,7 @@ class SettingsRepository(
         val UpdateChecksEnabled = booleanPreferencesKey("update_checks_enabled")
         val PingTestsEnabled = booleanPreferencesKey("ping_tests_enabled")
         val BackendMode = stringPreferencesKey("backend_mode")
+        val ConversionBias = stringPreferencesKey("conversion_bias")
     }
 
     private val secureTokenStore = SecureTokenStore(context)
@@ -57,8 +59,17 @@ class SettingsRepository(
             backendMode = preferences[Keys.BackendMode]
                 ?.let { stored -> BackendMode.entries.firstOrNull { it.name == stored } }
                 ?: BackendMode.ServerUrl,
+            conversionBias = preferences[Keys.ConversionBias]
+                ?.let { stored -> ConversionBias.entries.firstOrNull { it.name == stored } }
+                ?: ConversionBias.Auto,
             botToken = botToken,
         )
+    }
+
+    suspend fun setConversionBias(bias: ConversionBias) {
+        context.settingsDataStore.edit { preferences ->
+            preferences[Keys.ConversionBias] = bias.name
+        }
     }
 
     suspend fun setServerUrl(url: String) {
