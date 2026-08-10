@@ -43,6 +43,15 @@ interface PackDao {
     )
     suspend fun setTelegramSetName(id: String, fullName: String, now: Long)
 
+    /** Non-terminal states only exist while an operation is running. If one
+     * is found with nothing running, the process died mid-conversion and the
+     * pack would otherwise sit at "Downloading" forever. */
+    @Query(
+        "UPDATE packs SET status = 'Failed', errorMessage = :message " +
+            "WHERE status IN ('Building', 'Downloading', 'Converting')",
+    )
+    suspend fun failUnfinished(message: String): Int
+
     @Query("DELETE FROM packs WHERE id = :id")
     suspend fun delete(id: String)
 

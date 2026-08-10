@@ -52,6 +52,8 @@
     <string name="search_packs_placeholder">Search packs…</string>
     <string name="pack_placeholder_title">Importing…</string>
     <string name="conversion_elapsed_label">Elapsed</string>
+    <string name="stage_starting">Starting…</string>
+    <string name="err_operation_interrupted">Interrupted before it finished. Import it again to retry.</string>
     <string name="settings_section_conversion_bias">Animated stickers</string>
     <string name="conversion_bias_sharpness">Sharper</string>
     <string name="conversion_bias_auto">Auto</string>

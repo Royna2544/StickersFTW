@@ -11,7 +11,6 @@ import com.royna.stickersftw.R
 import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.data.ThemeModeCache
-import com.royna.stickersftw.data.model.PackOperationProgress
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.AppSettings
@@ -32,9 +31,11 @@ import com.royna.stickersftw.network.ApiResult
 import com.royna.stickersftw.network.TelegramBackendConfig
 import com.royna.stickersftw.network.TelegramBackendProvider
 import com.royna.stickersftw.notifications.PackOperationNotifier
+import com.royna.stickersftw.operation.PackOperationController
+import com.royna.stickersftw.operation.PackOperationRequest
+import com.royna.stickersftw.operation.PackOperationService
 import java.util.UUID
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -134,8 +135,10 @@ class AppViewModel(
         }
     }
 
-    private val _conversion = MutableStateFlow(ConversionUiState())
-    val conversion: StateFlow<ConversionUiState> = _conversion.asStateFlow()
+    /** Owned by [PackOperationService] via [PackOperationController], not by
+     * this ViewModel: the operation outlives any Activity, so its state has
+     * to as well. */
+    val conversion: StateFlow<ConversionUiState> = PackOperationController.state
 
     /** One-shot: set when a download/conversion/publish was rejected because
      * a different pack's operation is already running -- Telegram/the server
@@ -203,10 +206,16 @@ class AppViewModel(
     var lastPreviewInput: String = ""
         private set
 
-    private var operationJob: Job? = null
 
     init {
         refreshInstalledApps()
+        // Nothing running in this process means any pack still sitting in a
+        // non-terminal state was left there by a process that went away
+        // mid-conversion. Without this it stays "Downloading" forever, with
+        // no way back other than deleting it.
+        if (!PackOperationController.isRunning) {
+            viewModelScope.launch { packRepository.failInterruptedOperations() }
+        }
     }
 
     fun refreshInstalledApps() {
@@ -423,14 +432,8 @@ class AppViewModel(
     fun startImportCustom() {
         val selected = _customSelection.value ?: emptySet()
         val shortName = packRepository.extractShortName(lastPreviewInput)
-        startImportOrPromptOverwrite(shortName, StickerPackRepository.CUSTOM_PART_INDEX) { packId ->
-            packRepository.importAndConvertCustom(
-                packId,
-                settings.value.backendConfig,
-                lastPreviewInput,
-                selected,
-                settings.value.conversionBias,
-            )
+        startImportOrPromptOverwrite(shortName, StickerPackRepository.CUSTOM_PART_INDEX) { packId, title ->
+            PackOperationRequest.ImportCustom(packId, title, lastPreviewInput, selected)
         }
     }
 
@@ -441,21 +444,15 @@ class AppViewModel(
      * see [duplicatePrompt] and [pendingNavigation]. */
     fun startImport(input: String, partIndex: Int = 0) {
         val shortName = packRepository.extractShortName(input)
-        startImportOrPromptOverwrite(shortName, partIndex) { packId ->
-            packRepository.importAndConvert(
-                packId,
-                settings.value.backendConfig,
-                input,
-                partIndex,
-                settings.value.conversionBias,
-            )
+        startImportOrPromptOverwrite(shortName, partIndex) { packId, title ->
+            PackOperationRequest.Import(packId, title, input, partIndex)
         }
     }
 
     private fun startImportOrPromptOverwrite(
         shortName: String,
         partIndex: Int,
-        flowFactory: (packId: String) -> Flow<PackOperationProgress>,
+        request: (packId: String, packTitle: String) -> PackOperationRequest,
     ) {
         val existing = packs.value.firstOrNull {
             it.origin == PackOrigin.Imported && it.telegramSetName == shortName && it.importPartIndex == partIndex
@@ -468,7 +465,7 @@ class AppViewModel(
         // half-built rows.
         if (existing == null || existing.status != PackStatus.Ready) {
             val packId = existing?.id ?: UUID.randomUUID().toString()
-            if (runOperation(packId) { flowFactory(packId) }) {
+            if (start(request(packId, existing?.title ?: shortName))) {
                 _pendingNavigation.value = packId
             }
             return
@@ -477,7 +474,7 @@ class AppViewModel(
             packTitle = existing.title,
             onConfirm = {
                 _duplicatePrompt.value = null
-                if (runOperation(existing.id) { flowFactory(existing.id) }) {
+                if (start(request(existing.id, existing.title))) {
                     _pendingNavigation.value = existing.id
                 }
             },
@@ -493,16 +490,14 @@ class AppViewModel(
     }
 
     fun startPublish(packId: String, pushToTelegram: Boolean, addToWhatsapp: Boolean): Boolean =
-        runOperation(packId) {
-            packRepository.publishPack(
+        start(
+            PackOperationRequest.Publish(
                 packId,
+                packs.value.firstOrNull { it.id == packId }?.title.orEmpty(),
                 pushToTelegram,
                 addToWhatsapp,
-                settings.value.backendConfig,
-                settings.value.telegramUserId,
-                settings.value.conversionBias,
-            )
-        }
+            ),
+        )
 
     /** Pull-to-refresh on My Packs: re-checks every eligible imported pack
      * against Telegram and flags any that drifted. A no-op (but still
@@ -530,7 +525,9 @@ class AppViewModel(
      * this reuses the same conversion flow/progress UI as a fresh import. */
     fun requestPackUpdate(packId: String): Boolean {
         resetPreview()
-        return runOperation(packId) { packRepository.applyPackUpdate(packId, settings.value.backendConfig, settings.value.conversionBias) }
+        return start(
+            PackOperationRequest.Update(packId, packs.value.firstOrNull { it.id == packId }?.title.orEmpty()),
+        )
     }
 
     fun disableUpdatesForPack(packId: String) {
@@ -544,119 +541,27 @@ class AppViewModel(
     fun addToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent =
         packRepository.buildAddToWhatsappIntent(packId, packTitle, business)
 
-    /** "Run in background": the operation already keeps running in
-     * [viewModelScope] regardless of which screen is visible -- this just
-     * opts the currently-running operation for [packId] into posting a
-     * system notification (progress, retry attempts, then success/failure)
-     * so the user doesn't have to keep the Conversion screen open to know
-     * how it went. */
+    /** "Run in background" is now only a way out of the Conversion screen:
+     * [PackOperationService] runs the work and posts its notification from
+     * the moment it starts, so there is nothing left to opt into. Kept as an
+     * action because leaving the screen is still a thing people want to do,
+     * and it's the natural moment to ask for the notification permission. */
     fun runInBackground(packId: String, packTitle: String) {
-        val app = getApplication<Application>()
-        PackOperationNotifier.ensureChannel(app)
-        backgroundNotifiedPackId = packId
-        backgroundPackTitle = packTitle
-
-        // Post immediately from the state we already have, instead of waiting
-        // for the next emission to opt in. Progress only ticks once per
-        // sticker, which on a video pack is up to a minute -- long enough
-        // that tapping the button and seeing nothing appear reads as the
-        // button having done nothing at all.
-        val current = _conversion.value
-        if (current.packId == packId && current.isRunning) {
-            PackOperationNotifier.showProgress(app, packId, packTitle, current.stage, current.progress)
-        }
+        PackOperationNotifier.ensureChannel(getApplication())
     }
-
-    private var backgroundNotifiedPackId: String? = null
-    private var backgroundPackTitle: String = ""
 
     /** Only one pack may download/convert/publish at a time -- the server
      * flood-limits concurrent Telegram requests, and letting a second
      * operation silently cancel the first would orphan its progress. Returns
      * false (and sets [busyMessage]) when another pack's operation is
      * already running; the caller does nothing further in that case. */
-    private fun runOperation(packId: String, flowFactory: () -> kotlinx.coroutines.flow.Flow<PackOperationProgress>): Boolean {
-        if (_conversion.value.isRunning) {
-            if (_conversion.value.packId == packId) return true
+    private fun start(request: PackOperationRequest): Boolean {
+        if (!PackOperationController.canStart(request.packId)) {
             _busyMessage.value = getApplication<Application>().getString(R.string.err_operation_already_running)
             return false
         }
-
-        operationJob?.cancel()
-        val startedAt = System.currentTimeMillis()
-        _conversion.value = ConversionUiState(
-            packId = packId,
-            stage = "Starting",
-            isRunning = true,
-            startedAtMillis = startedAt,
-        )
-        operationJob = viewModelScope.launch {
-            // Sticky: only the stages that know the pack's media types carry
-            // the flag, so latching it here keeps the warning on screen for
-            // the rest of the run instead of flickering off at the next
-            // stage that doesn't set it.
-            var slowFormat = false
-            flowFactory().collect { progress ->
-                if (progress is PackOperationProgress.Progress && progress.slowFormat) slowFormat = true
-                _conversion.value = progress.toUiState(packId, startedAt, slowFormat)
-                notifyBackgroundProgress(packId, progress)
-            }
-        }
+        PackOperationService.start(getApplication(), request)
         return true
-    }
-
-    private fun notifyBackgroundProgress(packId: String, progress: PackOperationProgress) {
-        if (backgroundNotifiedPackId != packId) return
-        val app = getApplication<Application>()
-        when (progress) {
-            is PackOperationProgress.Progress -> PackOperationNotifier.showProgress(
-                app,
-                packId,
-                backgroundPackTitle,
-                progress.stage,
-                progress.fraction,
-            )
-            is PackOperationProgress.Complete -> {
-                PackOperationNotifier.showSuccess(app, packId, backgroundPackTitle, app.getString(R.string.conversion_ready_body))
-                backgroundNotifiedPackId = null
-            }
-            is PackOperationProgress.Failed -> {
-                PackOperationNotifier.showFailure(app, packId, backgroundPackTitle, progress.message)
-                backgroundNotifiedPackId = null
-            }
-        }
-    }
-
-    private fun PackOperationProgress.toUiState(
-        packId: String,
-        startedAtMillis: Long,
-        slowFormat: Boolean,
-    ): ConversionUiState = when (this) {
-        is PackOperationProgress.Progress -> ConversionUiState(
-            packId = packId,
-            stage = stage,
-            progress = fraction,
-            isRunning = true,
-            startedAtMillis = startedAtMillis,
-            isSlowFormat = slowFormat,
-        )
-        is PackOperationProgress.Complete -> ConversionUiState(
-            packId = packId,
-            stage = "Ready",
-            progress = 1f,
-            isRunning = false,
-            isComplete = true,
-            startedAtMillis = startedAtMillis,
-            isSlowFormat = slowFormat,
-        )
-        is PackOperationProgress.Failed -> ConversionUiState(
-            packId = packId,
-            stage = "Failed",
-            isRunning = false,
-            errorMessage = message,
-            startedAtMillis = startedAtMillis,
-            isSlowFormat = slowFormat,
-        )
     }
 
     private fun isAnyPackageInstalled(vararg packageNames: String): Boolean {

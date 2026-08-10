@@ -896,6 +896,12 @@ class StickerPackRepository(private val appContext: Context) {
 
     // ---- Shared pack management --------------------------------------------
 
+    /** Marks anything left mid-flight as failed. Called at startup when no
+     * operation is running, which can only mean the previous process went
+     * away before finishing one. */
+    suspend fun failInterruptedOperations(): Int =
+        packDao.failUnfinished(appContext.getString(R.string.err_operation_interrupted))
+
     suspend fun setPinned(id: String, pinned: Boolean) {
         packDao.setPinned(id, pinned)
     }

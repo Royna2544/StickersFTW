@@ -33,14 +33,19 @@ object PackOperationNotifier {
         )
     }
 
-    fun showProgress(context: Context, packId: String, packTitle: String, stage: String, fraction: Float) {
-        post(context, packId, baseBuilder(context, packId, packTitle)
+    /** The foreground service's own notification. Returned rather than
+     * posted, because a foreground service updates its notification by
+     * re-calling startForeground with it -- posting separately would leave
+     * the service holding a frozen copy. */
+    fun buildProgress(context: Context, packId: String, packTitle: String, stage: String, fraction: Float): Notification =
+        baseBuilder(context, packId, packTitle)
             .setContentText(stage)
             .setProgress(100, (fraction * 100).toInt().coerceIn(0, 100), false)
             .setOngoing(true)
             .setAutoCancel(false)
-            .build())
-    }
+            .build()
+
+    fun idFor(packId: String): Int = notificationId(packId)
 
     fun showSuccess(context: Context, packId: String, packTitle: String, message: String) {
         post(context, packId, baseBuilder(context, packId, packTitle)
