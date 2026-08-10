@@ -42,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
 import com.royna.stickersftw.ui.ImportPreviewUiState
+import com.royna.stickersftw.ui.theme.appButtonColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,6 +110,7 @@ fun ImportPackScreen(
             Button(
                 onClick = { onLoadPreview(normalized) },
                 enabled = normalized.isNotBlank() && previewState !is ImportPreviewUiState.Loading,
+                colors = appButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.action_load_preview))

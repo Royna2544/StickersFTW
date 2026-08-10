@@ -54,6 +54,7 @@ import com.royna.stickersftw.R
 import com.royna.stickersftw.data.ShortNameValidator
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
+import com.royna.stickersftw.ui.theme.appButtonColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -224,6 +225,7 @@ fun CreatePackScreen(
                     }
                 },
                 enabled = canPublish,
+                colors = appButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.action_create_and_publish))

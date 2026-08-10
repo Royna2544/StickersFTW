@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.royna.stickersftw.R
 import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
+import com.royna.stickersftw.data.ThemeModeCache
 import com.royna.stickersftw.data.model.PackOperationProgress
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
@@ -95,7 +96,11 @@ class AppViewModel(
     val settings: StateFlow<AppSettings> = settingsRepository.settings.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AppSettings(),
+        // DataStore's first emission is asynchronous, so the first frames
+        // compose against this value. Seeding the theme from the synchronous
+        // cache keeps them on the user's actual choice instead of briefly
+        // resolving ThemeMode.System against the system setting.
+        initialValue = AppSettings(themeMode = ThemeModeCache.read(application)),
     )
 
     val packs: StateFlow<List<StickerPack>> = packRepository.observePacks().stateIn(

@@ -45,6 +45,7 @@ import coil3.compose.SubcomposeAsyncImage
 import com.royna.stickersftw.R
 import com.royna.stickersftw.conversion.SizeBudget
 import com.royna.stickersftw.data.model.PreviewSticker
+import com.royna.stickersftw.ui.theme.appButtonColors
 
 /** A gallery-style checkable grid of a pack's sticker thumbnails, letting
  * the user hand-pick an arbitrary <=30-sticker subset instead of a
@@ -94,6 +95,7 @@ fun CustomStickerPickerScreen(
                     Button(
                         onClick = onDownload,
                         enabled = selectedIds.size in SizeBudget.MIN_STICKERS..SizeBudget.MAX_STICKERS,
+                        colors = appButtonColors(),
                     ) {
                         Icon(Icons.Rounded.Download, contentDescription = null)
                         Text(stringResource(R.string.action_download))

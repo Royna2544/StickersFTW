@@ -1,10 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.StickersFTW" parent="android:style/Theme.Material.Light.NoActionBar">
+    <!-- Concrete light and dark window themes. Neither has a -night variant,
+         so MainActivity can force either one regardless of the system
+         setting when the user has picked Light or Dark in Settings. -->
+    <style name="Base.Theme.StickersFTW.Light" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/window_background_light</item>
     </style>
+
+    <style name="Base.Theme.StickersFTW.Dark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/window_background_dark</item>
+    </style>
+
+    <!-- What the manifest declares, and what MainActivity leaves in place for
+         ThemeMode.System: an alias that follows the system via the -night
+         qualifier. The forced modes bypass it entirely. -->
+    <style name="Theme.StickersFTW" parent="Base.Theme.StickersFTW.Light" />
 </resources>

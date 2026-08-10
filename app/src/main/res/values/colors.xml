@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirror ui/theme/Color.kt's SoftBackground and DarkBackground. The
+         window these paint is what's visible during cold start, before the
+         first Compose frame; matching the values exactly means there is no
+         visible hand-off. Keep the two in sync. -->
+    <color name="window_background_light">#FFFFF9FD</color>
+    <color name="window_background_dark">#FF171219</color>
+</resources>

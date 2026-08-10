@@ -79,6 +79,10 @@ class SettingsRepository(
     }
 
     suspend fun setThemeMode(mode: ThemeMode) {
+        // Mirrored into [ThemeModeCache] so the next cold start can choose a
+        // window theme before DataStore is readable. DataStore remains the
+        // source of truth; the cache is only ever written here.
+        ThemeModeCache.write(context, mode)
         context.settingsDataStore.edit { preferences ->
             preferences[Keys.ThemeMode] = mode.name
         }

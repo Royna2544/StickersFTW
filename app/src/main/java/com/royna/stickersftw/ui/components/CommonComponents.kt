@@ -77,6 +77,7 @@ import com.royna.stickersftw.ui.theme.PositiveGreen
 import com.royna.stickersftw.ui.theme.UpdateAvailableYellow
 import com.royna.stickersftw.ui.theme.TelegramBlue
 import com.royna.stickersftw.ui.theme.WhatsAppGreen
+import com.royna.stickersftw.ui.theme.appButtonColors
 import java.io.File
 
 @Composable
@@ -763,6 +764,7 @@ fun AddToWhatsAppButton(
         Button(
             onClick = { onBuildIntent()?.let { launcher.launch(it) } },
             enabled = enabled && whatsappAvailable,
+            colors = appButtonColors(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.Workspaces, contentDescription = null)

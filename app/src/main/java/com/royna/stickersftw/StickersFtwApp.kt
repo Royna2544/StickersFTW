@@ -203,7 +203,19 @@ fun StickersFtwApp(
                                 Icon(destination.icon, contentDescription = stringResource(destination.labelRes))
                             },
                             label = { Text(stringResource(destination.labelRes)) },
+                            // Material3 1.4.0 changed the selected label's
+                            // token from onSurface to secondary, which paints
+                            // it Telegram blue here -- jarring next to the
+                            // lavender indicator, and not a colour this app
+                            // ever chose. Pinning both selected colours to the
+                            // primary/primaryContainer pair also fixes the
+                            // icon, which was still taking its colour from
+                            // onSecondaryContainer despite the indicator
+                            // behind it having been switched to
+                            // primaryContainer.
                             colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
                                 indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                             ),
                         )

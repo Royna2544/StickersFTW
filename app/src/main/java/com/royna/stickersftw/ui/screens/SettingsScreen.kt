@@ -58,6 +58,7 @@ import com.royna.stickersftw.model.BackendMode
 import com.royna.stickersftw.model.ThemeMode
 import com.royna.stickersftw.ui.ServerUrlSaveResult
 import com.royna.stickersftw.ui.components.PageHeader
+import com.royna.stickersftw.ui.theme.appButtonColors
 
 @Composable
 fun SettingsScreen(
@@ -243,6 +244,7 @@ fun SettingsScreen(
                 Button(
                     onClick = { onSetTelegramUserId(telegramUserId) },
                     enabled = telegramUserId != settings.telegramUserId,
+                    colors = appButtonColors(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.action_save))
@@ -587,7 +589,7 @@ private fun ServerUrlDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(value) }, enabled = valid && !isChecking) {
+            Button(onClick = { onSave(value) }, enabled = valid && !isChecking, colors = appButtonColors()) {
                 Text(stringResource(R.string.action_save))
             }
         },
@@ -656,7 +658,7 @@ private fun BotTokenDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { onSave(value.trim()) }, enabled = valid && !isChecking) {
+            Button(onClick = { onSave(value.trim()) }, enabled = valid && !isChecking, colors = appButtonColors()) {
                 Text(stringResource(R.string.action_save))
             }
         },

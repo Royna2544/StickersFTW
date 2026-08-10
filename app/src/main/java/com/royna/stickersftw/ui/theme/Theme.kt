@@ -1,5 +1,7 @@
 package com.royna.stickersftw.ui.theme
 
+import android.content.res.Configuration
+import android.content.res.Resources
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -40,16 +42,35 @@ private val DarkColors = darkColorScheme(
     outline = androidx.compose.ui.graphics.Color(0xFF9A909D),
 )
 
+/** Resolves the stored preference into an actual light/dark choice. Public
+ * because `MainActivity` drives the system bar icon tint off it too -- the
+ * bars and the Compose content have to agree, and the only way to guarantee
+ * that is for both to ask the same function. */
+@Composable
+fun ThemeMode.resolveDarkTheme(): Boolean = when (this) {
+    ThemeMode.System -> isSystemInDarkTheme()
+    ThemeMode.Light -> false
+    ThemeMode.Dark -> true
+}
+
+/** The pre-composition counterpart of [resolveDarkTheme], for the window-level
+ * decisions `MainActivity` has to make in `onCreate` before a composition
+ * exists. `isSystemInDarkTheme` reads this same uiMode bit, so the two agree
+ * by construction. */
+fun ThemeMode.resolveDarkTheme(resources: Resources): Boolean = when (this) {
+    ThemeMode.System ->
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    ThemeMode.Light -> false
+    ThemeMode.Dark -> true
+}
+
 @Composable
 fun StickersFtwTheme(
     themeMode: ThemeMode,
     content: @Composable () -> Unit,
 ) {
-    val darkTheme = when (themeMode) {
-        ThemeMode.System -> isSystemInDarkTheme()
-        ThemeMode.Light -> false
-        ThemeMode.Dark -> true
-    }
+    val darkTheme = themeMode.resolveDarkTheme()
 
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
