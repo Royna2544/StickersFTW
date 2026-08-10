@@ -1,8 +1,28 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+/** Signing material lives outside the repo (see .gitignore). Absent on a
+ * fresh clone and on CI, which is why every use of it is null-guarded rather
+ * than assumed: the project has to stay buildable for someone who does not
+ * have the key, they just cannot produce a signed release. */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+/** Backslashes are escape characters in a .properties file, so a pasted
+ * Windows path silently arrives mangled. Normalising to forward slashes
+ * accepts either spelling instead of failing with an unsigned build and no
+ * explanation. */
+fun keystorePath(): File? = keystoreProperties.getProperty("storeFile")
+    ?.replace('\\', '/')
+    ?.let { path -> File(path).takeIf { it.exists() } ?: rootProject.file(path).takeIf { it.exists() } }
+
+val hasSigningKey = keystorePath() != null
 
 android {
     namespace = "com.royna.stickersftw"
@@ -43,11 +63,32 @@ android {
     // prebuilt AAR.
     ndkVersion = "30.0.14904198"
 
+    signingConfigs {
+        if (hasSigningKey) {
+            create("release") {
+                storeFile = keystorePath()
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // Falls back to unsigned rather than failing the build, so a
+            // clone without the key still compiles.
+            signingConfig = signingConfigs.findByName("release")
             optimization {
                 enable = false
             }
+        }
+        debug {
+            // Same key for debug too: the auto-generated debug keystore is
+            // per-machine and gets regenerated, and a signature change forces
+            // an uninstall on the next install -- which takes the app's data
+            // with it.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfig
         }
     }
     compileOptions {
@@ -81,7 +122,11 @@ dependencies {
     implementation(libs.squareup.retrofit)
     implementation(libs.squareup.retrofit.converter.gson)
     implementation(libs.squareup.okhttp)
-    debugImplementation(libs.squareup.okhttp.logging.interceptor)
+    // Not debugImplementation: RetrofitProvider references HttpLoggingInterceptor
+    // unconditionally and only gates it at runtime on BuildConfig.DEBUG, so the
+    // type has to resolve when compiling release too. Release builds failed
+    // outright before this.
+    implementation(libs.squareup.okhttp.logging.interceptor)
     implementation(libs.coil.compose)
     implementation(libs.coil.android)
     implementation(libs.coil.network.okhttp)

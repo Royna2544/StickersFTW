@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Signing. The keystore and its passwords never belong in the repo -- a
+# release key is unrecoverable if lost and unusable to anyone else if leaked.
+keystore.properties
+*.jks
+*.keystore
