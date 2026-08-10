@@ -50,6 +50,7 @@
     <!-- My Packs screen -->
     <string name="my_packs_title">My Packs</string>
     <string name="search_packs_placeholder">Search packs…</string>
+    <string name="pack_placeholder_title">Importing…</string>
     <string name="my_packs_empty">No packs yet</string>
     <string name="my_packs_search_no_results">No packs match your search</string>
     <string name="pack_filter_pinned">Pinned</string>

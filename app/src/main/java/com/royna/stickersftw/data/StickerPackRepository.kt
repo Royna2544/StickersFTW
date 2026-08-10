@@ -146,18 +146,19 @@ class StickerPackRepository(private val appContext: Context) {
         input: String,
         partIndex: Int = 0,
     ): Flow<PackOperationProgress> = flow {
-        val fetched = fetchStickerSet(backendConfig, input) ?: return@flow
+        placeholderPack(packId, input, partIndex)
+        val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
         if (countResult is PlannerResult.Rejected) {
-            emit(PackOperationProgress.Failed(countResult.reason))
+            failImport(packId, countResult.reason)
             return@flow
         }
 
         val partRanges = PackConversionPlanner.computePartRanges(setDto.stickers.size)
         if (partIndex !in partRanges.indices) {
-            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_invalid_part)))
+            failImport(packId, appContext.getString(R.string.err_invalid_part))
             return@flow
         }
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
@@ -185,12 +186,12 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
         val input = pack.sourceUrl ?: setName
-        val fetched = fetchStickerSet(backendConfig, input) ?: return@flow
+        val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
         if (countResult is PlannerResult.Rejected) {
-            emit(PackOperationProgress.Failed(countResult.reason))
+            failImport(packId, countResult.reason)
             return@flow
         }
 
@@ -276,16 +277,17 @@ class StickerPackRepository(private val appContext: Context) {
         input: String,
         selectedIds: Set<String>,
     ): Flow<PackOperationProgress> = flow {
-        val fetched = fetchStickerSet(backendConfig, input) ?: return@flow
+        placeholderPack(packId, input, CUSTOM_PART_INDEX)
+        val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val stickerDtos = setDto.stickers.filter { it.id in selectedIds }
         if (stickerDtos.size < SizeBudget.MIN_STICKERS) {
-            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_select_at_least, SizeBudget.MIN_STICKERS)))
+            failImport(packId, appContext.getString(R.string.err_select_at_least, SizeBudget.MIN_STICKERS))
             return@flow
         }
         if (stickerDtos.size > SizeBudget.MAX_STICKERS) {
-            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_select_at_most, SizeBudget.MAX_STICKERS)))
+            failImport(packId, appContext.getString(R.string.err_select_at_most, SizeBudget.MAX_STICKERS))
             return@flow
         }
 
@@ -327,13 +329,70 @@ class StickerPackRepository(private val appContext: Context) {
     /** Fetches and validates the sticker set's metadata, emitting a
      * [PackOperationProgress.Failed] and returning null on any failure so
      * callers can just bail out with `?: return@flow`. */
+    /** Records the failure on the pack row as well as reporting it to the UI.
+     * The two used to drift apart: every early return in an import emitted
+     * [PackOperationProgress.Failed] and left the row alone, which was
+     * invisible while the row didn't exist yet and stale once it did. */
+    private suspend fun FlowCollector<PackOperationProgress>.failImport(
+        packId: String,
+        message: String,
+    ) {
+        finalizePackFailed(packId, message)
+        emit(PackOperationProgress.Failed(message))
+    }
+
+    /** Lays down a minimal row before the first network call.
+     *
+     * An import used to exist only as in-memory progress state until the set
+     * metadata came back, so anything that interrupted that window -- a
+     * dropped connection, a rejected fetch, the process going away -- left
+     * nothing at all behind: no failed pack to retry, nothing to delete, no
+     * evidence the import was ever attempted. Everything here is what's known
+     * without asking Telegram; [convertAndPersistImportedPack] overwrites it
+     * with the real metadata as soon as there is any.
+     *
+     * Status is Building, which keeps it out of the update-check candidates
+     * and out of the WhatsApp content provider, both of which select on
+     * Ready. */
+    private suspend fun placeholderPack(packId: String, input: String, partIndex: Int) {
+        if (packDao.getPack(packId) != null) return
+        val shortName = extractShortName(input)
+        val now = System.currentTimeMillis()
+        packDao.upsert(
+            PackEntity(
+                id = packId,
+                origin = PackOrigin.Imported.name,
+                telegramSetName = shortName.takeIf { it.isNotBlank() },
+                pushShortName = null,
+                sourceUrl = input,
+                title = shortName.ifBlank { appContext.getString(R.string.pack_placeholder_title) },
+                publisher = if (shortName.isBlank()) "" else "@$shortName",
+                stickerCount = 0,
+                isAnimatedPack = false,
+                status = PackStatus.Building.name,
+                errorMessage = null,
+                warningMessage = null,
+                trayIconPath = null,
+                isPinned = false,
+                whatsappAdded = false,
+                createdAtMillis = now,
+                updatedAtMillis = now,
+                sourceSignature = null,
+                updateAvailable = false,
+                updateCheckEnabled = true,
+                importPartIndex = partIndex,
+            ),
+        )
+    }
+
     private suspend fun FlowCollector<PackOperationProgress>.fetchStickerSet(
+        packId: String,
         backendConfig: TelegramBackendConfig,
         input: String,
     ): Pair<String, StickerSetDto>? {
         val shortNameInput = extractShortName(input)
         if (shortNameInput.isBlank()) {
-            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_enter_pack_link)))
+            failImport(packId, appContext.getString(R.string.err_enter_pack_link))
             return null
         }
 
@@ -346,12 +405,12 @@ class StickerPackRepository(private val appContext: Context) {
                 },
             ) { backend.getSet(shortNameInput) }
         } catch (e: Exception) {
-            emit(PackOperationProgress.Failed(describeNetworkError(e)))
+            failImport(packId, describeNetworkError(e))
             return null
         }
         val setDto = when (result) {
             is ApiResult.Failure -> {
-                emit(PackOperationProgress.Failed(result.error.userMessage))
+                failImport(packId, result.error.userMessage)
                 return null
             }
             is ApiResult.Success -> result.value

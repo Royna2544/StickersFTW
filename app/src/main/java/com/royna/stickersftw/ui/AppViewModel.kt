@@ -19,6 +19,7 @@ import com.royna.stickersftw.model.BackendMode
 import com.royna.stickersftw.model.ConversionUiState
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
+import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.ServerConnectionStatus
 import com.royna.stickersftw.model.StickerPack
@@ -442,8 +443,14 @@ class AppViewModel(
         val existing = packs.value.firstOrNull {
             it.origin == PackOrigin.Imported && it.telegramSetName == shortName && it.importPartIndex == partIndex
         }
-        if (existing == null) {
-            val packId = UUID.randomUUID().toString()
+        // A pack that never finished importing is not a duplicate worth
+        // protecting -- since the row is now written up front, a failed or
+        // interrupted attempt leaves one behind, and asking whether to
+        // overwrite something the user never actually got would be nonsense.
+        // Retry in place on the same id instead, so retries can't pile up
+        // half-built rows.
+        if (existing == null || existing.status != PackStatus.Ready) {
+            val packId = existing?.id ?: UUID.randomUUID().toString()
             if (runOperation(packId) { flowFactory(packId) }) {
                 _pendingNavigation.value = packId
             }
