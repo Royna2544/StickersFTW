@@ -6,15 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
 import com.royna.stickersftw.model.PackOrigin
@@ -130,6 +131,7 @@ fun PackDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 22.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
@@ -142,23 +144,7 @@ fun PackDetailScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(6),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(pack.previewStickerPaths) { path ->
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                        ) {
-                            StickerThumbnail(path, modifier = Modifier.size(48.dp))
-                        }
-                    }
-                }
+                StickerPreviewGrid(pack.previewStickerPaths)
                 OutlinedButton(
                     onClick = { onViewAllStickers(pack.id) },
                     modifier = Modifier.fillMaxWidth(),
@@ -216,6 +202,9 @@ fun PackDetailScreen(
                     Text(stringResource(R.string.action_delete_from_telegram_and_local))
                 }
             }
+            // Keeps the last button off the bottom edge now that the column
+            // scrolls rather than being clipped to one screen.
+            Spacer(Modifier.height(4.dp))
         }
     }
 
@@ -239,6 +228,50 @@ fun PackDetailScreen(
     }
 }
 
+/** The preview teaser under the hero card.
+ *
+ * Rows are laid out directly rather than through a LazyVerticalGrid: the list
+ * is a bounded teaser, so laziness bought nothing and cost a hardcoded height
+ * that never matched the content. Cells take an equal share of the width and
+ * an [aspectRatio] of 1, which is what makes them square at any screen size --
+ * the previous fixed 48.dp thumbnail left the rounded background stretched
+ * around it wherever the column was wider than that. A short final row is
+ * padded with spacers so its cells stay the same size as a full row's. */
+@Composable
+private fun StickerPreviewGrid(
+    paths: List<String>,
+    columns: Int = 6,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        paths.chunked(columns).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { path ->
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                    ) {
+                        StickerThumbnail(
+                            path,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(4.dp),
+                        )
+                    }
+                }
+                repeat(columns - row.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PackHeroCard(pack: StickerPack) {
     androidx.compose.material3.Card(
@@ -248,8 +281,14 @@ private fun PackHeroCard(pack: StickerPack) {
             containerColor = MaterialTheme.colorScheme.surfaceVariant,
         ),
     ) {
+        // fillMaxWidth is what actually centres this block. Card's content
+        // slot is a ColumnScope that aligns children to the start, so a
+        // wrap-content column hugs the card's left edge and
+        // CenterHorizontally only centres the children against each other.
         Column(
-            modifier = Modifier.padding(22.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Surface(
@@ -257,13 +296,26 @@ private fun PackHeroCard(pack: StickerPack) {
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
             ) {
-                StickerThumbnail(pack.trayIconPath, modifier = Modifier.size(100.dp))
+                // Not the tray icon: that's a single flattened frame, because
+                // WhatsApp requires a static 96px tray image (see
+                // StickerConversionPipeline.buildTrayIcon), which left this
+                // the one frozen thumbnail on an animated pack's screen. The
+                // first converted sticker is the same artwork, animated.
+                StickerThumbnail(
+                    pack.previewStickerPaths.firstOrNull() ?: pack.trayIconPath,
+                    modifier = Modifier.size(100.dp),
+                )
             }
             Spacer(Modifier.height(14.dp))
-            Text(pack.title, style = MaterialTheme.typography.headlineMedium)
+            Text(
+                pack.title,
+                style = MaterialTheme.typography.headlineMedium,
+                textAlign = TextAlign.Center,
+            )
             Text(
                 pack.author,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(10.dp))
             Column(
@@ -285,6 +337,7 @@ private fun PackHeroCard(pack: StickerPack) {
                 text = pluralStringResource(R.plurals.stickers_count, pack.stickerCount, pack.stickerCount) +
                     if (pack.isAnimated) stringResource(R.string.pack_detail_animated_suffix) else "",
                 style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
             )
             if (pack.errorMessage != null) {
                 Spacer(Modifier.height(8.dp))
@@ -292,6 +345,7 @@ private fun PackHeroCard(pack: StickerPack) {
                     text = pack.errorMessage,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
                 )
             } else if (pack.warningMessage != null) {
                 Spacer(Modifier.height(8.dp))
@@ -299,6 +353,7 @@ private fun PackHeroCard(pack: StickerPack) {
                     text = pack.warningMessage,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
                 )
             }
         }

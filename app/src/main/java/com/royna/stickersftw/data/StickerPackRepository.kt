@@ -51,6 +51,12 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
+/** How many sticker paths [StickerPack.previewStickerPaths] carries -- three
+ * full rows of the pack detail screen's six-column preview grid. Derived on
+ * every read rather than stored, so changing it takes effect for packs that
+ * are already imported. The full set lives behind "View all stickers". */
+private const val PREVIEW_STICKER_LIMIT = 18
+
 /** Unifies Room persistence, the network client, the conversion pipeline,
  * and WhatsApp registration behind one API the ViewModel drives. Constructed
  * manually (no DI framework), mirroring the existing SettingsRepository. */
@@ -881,7 +887,8 @@ class StickerPackRepository(private val appContext: Context) {
             errorMessage = pack.errorMessage,
             warningMessage = pack.warningMessage,
             trayIconPath = pack.trayIconPath,
-            previewStickerPaths = sortedStickers.mapNotNull { it.convertedWhatsappPath }.take(12),
+            previewStickerPaths = sortedStickers.mapNotNull { it.convertedWhatsappPath }
+                .take(PREVIEW_STICKER_LIMIT),
             previewEmojis = sortedStickers
                 .flatMap { it.emojis.split(',') }
                 .map { it.trim() }
