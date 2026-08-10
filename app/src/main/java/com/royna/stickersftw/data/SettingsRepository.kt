@@ -49,7 +49,7 @@ class SettingsRepository(
 
     val settings: Flow<AppSettings> = combine(dataStoreFlow, botTokenFlow) { preferences, botToken ->
         AppSettings(
-            serverUrl = preferences[Keys.ServerUrl] ?: "http://10.0.2.2:8080",
+            serverUrl = preferences[Keys.ServerUrl] ?: "https://ftwserver.duckdns.org",
             themeMode = preferences[Keys.ThemeMode]
                 ?.let { stored -> ThemeMode.entries.firstOrNull { it.name == stored } }
                 ?: ThemeMode.System,
