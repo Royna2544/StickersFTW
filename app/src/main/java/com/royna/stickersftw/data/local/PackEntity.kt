@@ -37,4 +37,9 @@ data class PackEntity(
     /** Part index used at import time; replayed verbatim when the user
      * chooses to update (always 0 for a custom or single-part import). */
     val importPartIndex: Int = 0,
+    /** Which ConversionBias produced this pack's animated stickers, so the
+     * pack can say what it was made with. Null for a static pack (the knob
+     * changes nothing there) and for anything converted before the setting
+     * existed. */
+    val conversionBias: String? = null,
 )

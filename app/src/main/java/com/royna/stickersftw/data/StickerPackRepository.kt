@@ -617,6 +617,7 @@ class StickerPackRepository(private val appContext: Context) {
             packId,
             packIsAnimated,
             trayFile.absolutePath.takeIf { trayReady },
+            bias = bias,
         )
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
@@ -872,10 +873,10 @@ class StickerPackRepository(private val appContext: Context) {
                 val trayFile = File(packDir, "tray.webp")
                 val trayReady = firstConvertedFile != null && firstConvertedType != null &&
                     StickerConversionPipeline.buildTrayIcon(firstConvertedFile, firstConvertedType, trayFile) is StickerConvertResult.Success
-                finalizePackReady(packId, packIsAnimated, trayFile.absolutePath.takeIf { trayReady }, telegramPushWarning)
+                finalizePackReady(packId, packIsAnimated, trayFile.absolutePath.takeIf { trayReady }, telegramPushWarning, bias)
             }
             pushToTelegram && telegramPushedFullName != null -> {
-                finalizePackReady(packId, packIsAnimated, pack.trayIconPath, telegramPushWarning)
+                finalizePackReady(packId, packIsAnimated, pack.trayIconPath, telegramPushWarning, bias)
             }
             else -> {
                 val reason = telegramPushWarning ?: appContext.getString(R.string.err_nothing_published)
@@ -993,6 +994,8 @@ class StickerPackRepository(private val appContext: Context) {
             updateAvailable = pack.updateAvailable,
             telegramSetName = if (pack.origin == PackOrigin.Imported.name) pack.telegramSetName else null,
             importPartIndex = pack.importPartIndex,
+            conversionBias = pack.conversionBias
+                ?.let { stored -> ConversionBias.entries.firstOrNull { it.name == stored } },
         )
     }
 
@@ -1098,6 +1101,7 @@ class StickerPackRepository(private val appContext: Context) {
         isAnimated: Boolean,
         trayIconPath: String?,
         warning: String? = null,
+        bias: ConversionBias? = null,
     ) {
         updatePack(packId) {
             it.copy(
@@ -1106,6 +1110,10 @@ class StickerPackRepository(private val appContext: Context) {
                 trayIconPath = trayIconPath ?: it.trayIconPath,
                 warningMessage = warning,
                 errorMessage = null,
+                // Only meaningful for an animated pack: the knob picks how
+                // far the encoder may trade quality for frames, and a static
+                // sticker has no frames to trade.
+                conversionBias = bias?.name.takeIf { isAnimated },
             )
         }
     }

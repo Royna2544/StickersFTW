@@ -137,6 +137,10 @@ data class StickerPack(
      * silently creating a duplicate entry. */
     val telegramSetName: String? = null,
     val importPartIndex: Int = 0,
+    /** Which [ConversionBias] this pack's animated stickers were built with.
+     * Null for static packs and for anything converted before the setting
+     * existed. */
+    val conversionBias: ConversionBias? = null,
 )
 
 /** One entry in the read-only full sticker grid viewer (see

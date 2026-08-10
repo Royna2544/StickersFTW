@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,12 +48,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
+import com.royna.stickersftw.model.ConversionBias
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.model.TelegramPushState
 import com.royna.stickersftw.ui.components.AddToWhatsAppButton
 import com.royna.stickersftw.ui.components.DeleteTelegramPackConfirmDialog
+import com.royna.stickersftw.ui.components.NeutralBadge
 import com.royna.stickersftw.ui.components.PackStatusChip
 import com.royna.stickersftw.ui.components.StickerThumbnail
 import com.royna.stickersftw.ui.components.SuccessBadge
@@ -328,6 +331,18 @@ private fun PackHeroCard(pack: StickerPack) {
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 PackStatusChip(pack.status)
+                pack.conversionBias?.let { bias ->
+                    NeutralBadge(
+                        text = stringResource(
+                            when (bias) {
+                                ConversionBias.Sharpness -> R.string.conversion_bias_sharpness
+                                ConversionBias.Auto -> R.string.conversion_bias_auto
+                                ConversionBias.Smoothness -> R.string.conversion_bias_smoothness
+                            },
+                        ),
+                        icon = Icons.Rounded.Tune,
+                    )
+                }
                 if (pack.whatsappAdded == true) SuccessBadge(stringResource(R.string.badge_added_to_whatsapp))
                 when (val telegramState = pack.telegramPushState) {
                     is TelegramPushState.Pushed -> SuccessBadge(stringResource(R.string.badge_on_telegram))

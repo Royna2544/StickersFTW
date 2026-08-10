@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -721,6 +722,28 @@ fun DeleteTelegramPackConfirmDialog(
                     Text(stringResource(R.string.action_cancel))
                 }
             }
+        }
+    }
+}
+
+/** A neutral counterpart to [SuccessBadge], for stating a fact about a pack
+ * rather than confirming something went well -- green would read as an
+ * achievement where this is just a label. */
+@Composable
+fun NeutralBadge(text: String, icon: ImageVector, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f),
+        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(100.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
         }
     }
 }

@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 2, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -14,6 +17,19 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var instance: AppDatabase? = null
 
+        /** Adds the column recording which ConversionBias built a pack.
+         *
+         * Written as a real migration rather than another destructive bump:
+         * by this version people have libraries of imported packs, and each
+         * one is minutes of conversion to rebuild. Nullable with no default,
+         * because packs converted before the setting existed genuinely have
+         * no answer and should show no tag rather than a made-up one. */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE packs ADD COLUMN conversionBias TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -21,8 +37,10 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stickers_ftw.db",
                 )
-                    // Pre-release app, no real user data to preserve across this
-                    // schema bump -- a real Migration isn't worth writing yet.
+                    .addMigrations(MIGRATION_2_3)
+                    // Still the fallback for the one earlier bump that never
+                    // got a migration written; 2 -> 3 now takes the path above
+                    // instead of dropping everything.
                     .fallbackToDestructiveMigration(dropAllTables = true)
                     .build().also { instance = it }
             }

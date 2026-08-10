@@ -555,6 +555,16 @@ class AppViewModel(
         PackOperationNotifier.ensureChannel(app)
         backgroundNotifiedPackId = packId
         backgroundPackTitle = packTitle
+
+        // Post immediately from the state we already have, instead of waiting
+        // for the next emission to opt in. Progress only ticks once per
+        // sticker, which on a video pack is up to a minute -- long enough
+        // that tapping the button and seeing nothing appear reads as the
+        // button having done nothing at all.
+        val current = _conversion.value
+        if (current.packId == packId && current.isRunning) {
+            PackOperationNotifier.showProgress(app, packId, packTitle, current.stage, current.progress)
+        }
     }
 
     private var backgroundNotifiedPackId: String? = null
