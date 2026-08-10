@@ -23,6 +23,21 @@ object WebpAnimationEncoder {
      * a broken-static or an over-budget file. */
     private const val MIN_FRAMES_FLOOR = 2
 
+    /** libwebp leaves the alpha channel lossless by default, which is fine
+     * until a sticker actually has one. Once Telegram video stickers started
+     * keeping their transparency, the alpha plane dominated the file: walking
+     * colour quality all the way down from 80 to 20 barely moved the total,
+     * so every step of the ladder overshot the budget and the encoder fell
+     * through to halving the frame count -- a transparent sticker came out at
+     * half the frame rate of the opaque one it replaced.
+     *
+     * Alpha is a cutout mask rather than picture detail, so it degrades far
+     * more gracefully than colour and can descend alongside it. Kept above
+     * the colour step so edges stay cleaner than the fill, and left lossless
+     * at the top step so a sticker that already fits is encoded exactly as
+     * before. */
+    private fun alphaQualityFor(quality: Int): Int = (quality + 20).coerceIn(0, 100)
+
     suspend fun encode(
         context: Context,
         frames: List<TimedFrame>,
@@ -55,7 +70,11 @@ object WebpAnimationEncoder {
                 )
                 try {
                     encoder.configure(
-                        WebPConfig(lossless = WebPConfig.COMPRESSION_LOSSY, quality = quality.toFloat()),
+                        WebPConfig(
+                            lossless = WebPConfig.COMPRESSION_LOSSY,
+                            quality = quality.toFloat(),
+                            alphaQuality = alphaQualityFor(quality),
+                        ),
                         WebPPreset.WEBP_PRESET_DEFAULT,
                     )
                     for (frame in currentFrames) {
