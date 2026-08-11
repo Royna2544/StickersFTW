@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Багцыг Telegram руу илгээхийн тулд %1$s-ийг нээгээд Эхлүүлэх дээр товшино уу. Бот таны тоон хэрэглэгчийн ID-г илгээнэ; доор буулгана уу.</string>
+</resources>

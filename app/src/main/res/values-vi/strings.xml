@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Để gửi một gói lên Telegram, hãy mở %1$s và nhấn Bắt đầu. Bot sẽ trả lời bằng ID người dùng dạng số của bạn; hãy dán ID đó vào bên dưới.</string>
+</resources>

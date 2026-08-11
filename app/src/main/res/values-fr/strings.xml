@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Pour envoyer un pack vers Telegram, ouvrez %1$s et appuyez sur Démarrer. Le bot répondra avec votre identifiant utilisateur numérique ; collez-le ci-dessous.</string>
+</resources>

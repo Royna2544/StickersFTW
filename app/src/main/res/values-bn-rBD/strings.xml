@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Telegram-এ একটি প্যাক পাঠাতে %1$s খুলুন এবং শুরু করুন ট্যাপ করুন। বট আপনার সাংখ্যিক ব্যবহারকারী আইডি দিয়ে উত্তর দেবে; সেটি নিচে পেস্ট করুন।</string>
+</resources>

@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">팩을 Telegram에 보내려면 %1$s을(를) 열고 시작을 누르세요. 봇이 숫자로 된 사용자 ID를 보내면 아래에 붙여 넣으세요.</string>
+</resources>

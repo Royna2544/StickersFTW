@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Pentru a trimite un pachet pe Telegram, deschideți %1$s și atingeți Pornire. Botul va răspunde cu ID-ul numeric de utilizator; inserați-l mai jos.</string>
+</resources>

@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">برای ارسال یک بسته به Telegram، %1$s را باز کنید و روی شروع بزنید. ربات شناسه عددی کاربری شما را می‌فرستد؛ آن را در پایین جای‌گذاری کنید.</string>
+</resources>

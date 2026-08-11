@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Για να στείλετε ένα πακέτο στο Telegram, ανοίξτε το %1$s και πατήστε Έναρξη. Το bot θα απαντήσει με το αριθμητικό αναγνωριστικό χρήστη σας· επικολλήστε το παρακάτω.</string>
+</resources>

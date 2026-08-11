@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Për të dërguar një paketë në Telegram, hapni %1$s dhe prekni Fillo. Boti do të përgjigjet me ID-në tuaj numerike të përdoruesit; ngjiteni më poshtë.</string>
+</resources>

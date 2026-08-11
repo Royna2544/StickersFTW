@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Telegram’a paket göndermek için %1$s botunu açıp Başlat’a dokunun. Bot, sayısal kullanıcı kimliğinizle yanıt verecektir; aşağıya yapıştırın.</string>
+</resources>

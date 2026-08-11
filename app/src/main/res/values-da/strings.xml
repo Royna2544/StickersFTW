@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Hvis du vil sende en pakke til Telegram, skal du åbne %1$s og trykke på Start. Botten svarer med dit numeriske bruger-id; indsæt det nedenfor.</string>
+</resources>

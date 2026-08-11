@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Telegramకు ప్యాక్‌ను పంపడానికి %1$s తెరిచి ప్రారంభించు నొక్కండి. బాట్ మీ సంఖ్యా వినియోగదారు IDతో ప్రత్యుత్తరం ఇస్తుంది; దాన్ని దిగువన అతికించండి.</string>
+</resources>

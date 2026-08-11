@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Csomag Telegramra küldéséhez nyisd meg a(z) %1$s botot, és koppints az Indítás gombra. A bot elküldi a numerikus felhasználói azonosítódat; illeszd be alább.</string>
+</resources>

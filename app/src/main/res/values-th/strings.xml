@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">หากต้องการส่งแพ็กไปยัง Telegram ให้เปิด %1$s แล้วแตะ เริ่ม บอตจะตอบกลับด้วย ID ผู้ใช้แบบตัวเลขของคุณ ให้วางไว้ด้านล่าง</string>
+</resources>

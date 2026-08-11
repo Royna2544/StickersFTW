@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Chcete-li odeslat balíček do Telegramu, otevřete %1$s a klepněte na Spustit. Bot odpoví vaším číselným ID uživatele; vložte ho níže.</string>
+</resources>

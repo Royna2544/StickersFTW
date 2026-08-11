@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Paki Telegrami saatmiseks ava %1$s ja puuduta nuppu Alusta. Bot vastab sinu numbrilise kasutaja-ID-ga; kleebi see alla.</string>
+</resources>

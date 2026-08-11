@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Če želite paket poslati v Telegram, odprite %1$s in tapnite Začni. Bot bo odgovoril z vašim številčnim ID-jem uporabnika; prilepite ga spodaj.</string>
+</resources>

@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Paketni Telegram’ga yuborish uchun %1$s botini oching va Boshlash tugmasini bosing. Bot raqamli foydalanuvchi ID’ingizni yuboradi; uni quyiga joylang.</string>
+</resources>

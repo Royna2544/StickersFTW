@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Om du vill skicka ett paket till Telegram öppnar du %1$s och trycker på Starta. Botten svarar med ditt numeriska användar-ID; klistra in det nedan.</string>
+</resources>

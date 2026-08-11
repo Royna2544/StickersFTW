@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">За да изпратите пакет в Telegram, отворете %1$s и докоснете „Старт“. Ботът ще отговори с вашия цифров потребителски идентификатор; поставете го по-долу.</string>
+</resources>

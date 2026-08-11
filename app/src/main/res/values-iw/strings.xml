@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">כדי לשלוח חבילה ל-Telegram, יש לפתוח את %1$s ולהקיש על התחלה. הבוט ישיב עם מזהה המשתמש המספרי שלך; יש להדביק אותו למטה.</string>
+</resources>

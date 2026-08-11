@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">Da pošaljete paket na Telegram, otvorite %1$s i dodirnite Pokreni. Bot će odgovoriti vašim brojčanim korisničkim ID-om; zalijepite ga ispod.</string>
+</resources>

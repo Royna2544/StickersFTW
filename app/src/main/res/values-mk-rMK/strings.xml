@@ -1,0 +1,3 @@
+<resources>
+    <string name="settings_telegram_push_server_body">За да испратите пакет на Telegram, отворете %1$s и допрете Започни. Ботот ќе одговори со вашиот нумерички кориснички ID; залепете го подолу.</string>
+</resources>
