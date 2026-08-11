@@ -108,6 +108,7 @@
     <string name="settings_section_server_url">SERVER URL</string>
     <string name="settings_section_bot_token">BOT TOKEN</string>
     <string name="settings_section_telegram_push">TELEGRAM PUSH</string>
+    <string name="settings_telegram_push_server_body">To push a pack to Telegram, open %1$s and tap Start. The bot will reply with your numeric user ID; paste it below.</string>
     <string name="settings_telegram_push_body">To push a pack to Telegram, message %1$s and send /start, then paste your numeric user ID below (get it from @userinfobot).</string>
     <string name="settings_telegram_push_bot_fallback">the bot configured on your server</string>
     <string name="settings_telegram_user_id_label">Telegram user ID</string>
