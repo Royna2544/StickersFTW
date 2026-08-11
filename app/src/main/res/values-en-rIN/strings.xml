@@ -1,3 +1,0 @@
-<resources>
-    <string name="settings_telegram_push_server_body">To push a pack to Telegram, open %1$s and tap Start. The bot will reply with your numeric user ID; paste it below.</string>
-</resources>

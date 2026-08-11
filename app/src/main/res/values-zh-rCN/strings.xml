@@ -1,3 +1,0 @@
-<resources>
-    <string name="settings_telegram_push_server_body">要将贴纸包推送到 Telegram，请打开 %1$s 并点按“开始”。机器人会回复你的数字用户 ID；请将其粘贴到下方。</string>
-</resources>

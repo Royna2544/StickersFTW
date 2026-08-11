@@ -1,3 +1,0 @@
-<resources>
-    <string name="settings_telegram_push_server_body">Щоб надіслати набір у Telegram, відкрийте %1$s і натисніть «Запустити». Бот надішле ваш числовий ідентифікатор користувача; вставте його нижче.</string>
-</resources>

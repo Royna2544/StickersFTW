@@ -1,3 +1,0 @@
-<resources>
-    <string name="settings_telegram_push_server_body">パックを Telegram に送信するには、%1$s を開いて「開始」をタップします。ボットから数値のユーザー ID が返信されたら、下に貼り付けてください。</string>
-</resources>

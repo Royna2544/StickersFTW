@@ -1,3 +1,0 @@
-<resources>
-    <string name="settings_telegram_push_server_body">Aby wysłać pakiet do Telegramu, otwórz %1$s i dotknij opcji Rozpocznij. Bot odpowie Twoim numerycznym identyfikatorem użytkownika; wklej go poniżej.</string>
-</resources>

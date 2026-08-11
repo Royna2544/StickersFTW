@@ -1,3 +1,0 @@
-<resources>
-    <string name="settings_telegram_push_server_body">如要將貼圖包推送至 Telegram，請開啟 %1$s 並輕觸「開始」。機械人會回覆你的數字用戶 ID；請將其貼到下方。</string>
-</resources>
