@@ -50,10 +50,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.BuildConfig
 import com.royna.stickersftw.R
@@ -64,6 +70,11 @@ import com.royna.stickersftw.model.ThemeMode
 import com.royna.stickersftw.ui.ServerUrlSaveResult
 import com.royna.stickersftw.ui.components.PageHeader
 import com.royna.stickersftw.ui.theme.appButtonColors
+
+internal const val TELEGRAM_START_PAYLOAD = "ftw_connect_v1"
+
+internal fun telegramStartUrl(botUsername: String): String =
+    "https://t.me/${botUsername.removePrefix("@")}?start=$TELEGRAM_START_PAYLOAD"
 
 @StringRes
 private fun ConversionBias.labelRes(): Int = when (this) {
@@ -248,8 +259,40 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 val botLabel = botUsername?.let { "@$it" } ?: stringResource(R.string.settings_telegram_push_bot_fallback)
+                val pushBody = stringResource(
+                    if (settings.backendMode == BackendMode.ServerUrl) {
+                        R.string.settings_telegram_push_server_body
+                    } else {
+                        R.string.settings_telegram_push_body
+                    },
+                    botLabel,
+                )
+                val pushText = if (
+                    settings.backendMode == BackendMode.ServerUrl && botUsername != null
+                ) {
+                    val labelStart = pushBody.indexOf(botLabel)
+                    buildAnnotatedString {
+                        append(pushBody.substring(0, labelStart))
+                        withLink(
+                            LinkAnnotation.Url(
+                                telegramStartUrl(botUsername),
+                                TextLinkStyles(
+                                    style = SpanStyle(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        textDecoration = TextDecoration.Underline,
+                                    ),
+                                ),
+                            ),
+                        ) {
+                            append(botLabel)
+                        }
+                        append(pushBody.substring(labelStart + botLabel.length))
+                    }
+                } else {
+                    buildAnnotatedString { append(pushBody) }
+                }
                 Text(
-                    text = stringResource(R.string.settings_telegram_push_body, botLabel),
+                    text = pushText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
