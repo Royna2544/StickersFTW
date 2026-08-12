@@ -99,6 +99,15 @@ android {
         compose = true
         buildConfig = true
     }
+
+    androidResources {
+        // Emits res/xml/locales_config.xml from whichever values-* folders
+        // exist at build time and points the manifest at it, which is what
+        // makes Android 13+ show a Language entry for this app under
+        // Settings > Apps. Generated rather than hand-written so it cannot
+        // drift from the translations actually shipped.
+        generateLocaleConfig = true
+    }
 }
 
 dependencies {
