@@ -110,6 +110,7 @@ class PackOperationService : Service() {
                 request.input,
                 request.partIndex,
                 settings.conversionBias,
+                PackOperationController::askMixedPack,
             )
             is PackOperationRequest.ImportCustom -> packs.importAndConvertCustom(
                 request.packId,
@@ -117,11 +118,13 @@ class PackOperationService : Service() {
                 request.input,
                 request.selectedIds,
                 settings.conversionBias,
+                PackOperationController::askMixedPack,
             )
             is PackOperationRequest.Update -> packs.applyPackUpdate(
                 request.packId,
                 settings.backendConfig,
                 settings.conversionBias,
+                PackOperationController::askMixedPack,
             )
             is PackOperationRequest.Publish -> packs.publishPack(
                 request.packId,

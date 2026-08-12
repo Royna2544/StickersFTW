@@ -1,6 +1,7 @@
 package com.royna.stickersftw.operation
 
 import com.royna.stickersftw.model.ConversionUiState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,4 +37,36 @@ object PackOperationController {
     fun publish(state: ConversionUiState) {
         _state.value = state
     }
+
+    // ---- Mixed-pack question ---------------------------------------------
+
+    private val _question = MutableStateFlow<MixedPackQuestion?>(null)
+
+    /** Non-null while a conversion is blocked waiting for an answer. Lives
+     * here rather than in the ViewModel for the same reason the progress
+     * does: the work asking the question outlives any Activity, and the
+     * dialog has to be able to appear on whatever screen is open. */
+    val question: StateFlow<MixedPackQuestion?> = _question.asStateFlow()
+
+    private var pendingAnswer: CompletableDeferred<Boolean>? = null
+
+    suspend fun askMixedPack(animatedCount: Int, staticCount: Int): Boolean {
+        val answer = CompletableDeferred<Boolean>()
+        pendingAnswer = answer
+        _question.value = MixedPackQuestion(animatedCount, staticCount)
+        return try {
+            answer.await()
+        } finally {
+            _question.value = null
+            pendingAnswer = null
+        }
+    }
+
+    fun answerMixedPack(splitByType: Boolean) {
+        pendingAnswer?.complete(splitByType)
+    }
 }
+
+/** A conversion found both animated and static stickers in one pack, which
+ * WhatsApp will not accept, and is waiting to be told what to do about it. */
+data class MixedPackQuestion(val animatedCount: Int, val staticCount: Int)

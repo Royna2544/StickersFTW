@@ -13,7 +13,7 @@ object StaticStickerConverter {
     fun convert(input: File, output: File, targetPx: Int, maxBytes: Int): ConversionOutcome {
         val source = BitmapFactory.decodeFile(input.absolutePath)
             ?: return ConversionOutcome.Failed("Could not decode image.")
-        val square = BitmapPrep.centerCropSquareAndScale(source, targetPx)
+        val square = BitmapPrep.fitSquareWithPadding(source, targetPx)
         return compressWithBudget(square, output, maxBytes)
     }
 

@@ -32,6 +32,7 @@ import com.royna.stickersftw.network.ApiResult
 import com.royna.stickersftw.network.TelegramBackendConfig
 import com.royna.stickersftw.network.TelegramBackendProvider
 import com.royna.stickersftw.notifications.PackOperationNotifier
+import com.royna.stickersftw.operation.MixedPackQuestion
 import com.royna.stickersftw.operation.PackOperationController
 import com.royna.stickersftw.operation.PackOperationRequest
 import com.royna.stickersftw.operation.PackOperationService
@@ -140,6 +141,14 @@ class AppViewModel(
      * this ViewModel: the operation outlives any Activity, so its state has
      * to as well. */
     val conversion: StateFlow<ConversionUiState> = PackOperationController.state
+
+    /** Non-null while a conversion is waiting to be told what to do about a
+     * pack holding both animated and static stickers. */
+    val mixedPackQuestion: StateFlow<MixedPackQuestion?> = PackOperationController.question
+
+    fun answerMixedPack(splitByType: Boolean) {
+        PackOperationController.answerMixedPack(splitByType)
+    }
 
     /** One-shot: set when a download/conversion/publish was rejected because
      * a different pack's operation is already running -- Telegram/the server

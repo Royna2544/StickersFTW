@@ -41,6 +41,7 @@ import com.royna.stickersftw.ui.AppViewModel
 import com.royna.stickersftw.ui.ImportPreviewUiState
 import com.royna.stickersftw.ui.components.DuplicatePackOverwriteDialog
 import com.royna.stickersftw.ui.components.ExpandableActionFab
+import com.royna.stickersftw.ui.components.MixedPackChoiceDialog
 import com.royna.stickersftw.ui.screens.ConversionScreen
 import com.royna.stickersftw.ui.screens.ConvertScreen
 import com.royna.stickersftw.ui.screens.CreatePackScreen
@@ -134,6 +135,7 @@ fun StickersFtwApp(
     val botUsername by viewModel.botUsername.collectAsStateWithLifecycle()
     val pendingNavigation by viewModel.pendingNavigation.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
+    val mixedPackQuestion by viewModel.mixedPackQuestion.collectAsStateWithLifecycle()
     val busyMessage by viewModel.busyMessage.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -432,6 +434,15 @@ fun StickersFtwApp(
                 )
             }
         }
+    }
+
+    mixedPackQuestion?.let { question ->
+        MixedPackChoiceDialog(
+            animatedCount = question.animatedCount,
+            staticCount = question.staticCount,
+            onSplit = { viewModel.answerMixedPack(splitByType = true) },
+            onKeepTogether = { viewModel.answerMixedPack(splitByType = false) },
+        )
     }
 
     duplicatePrompt?.let { prompt ->

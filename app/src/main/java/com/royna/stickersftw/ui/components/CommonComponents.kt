@@ -607,6 +607,67 @@ fun PackListCard(
 }
 
 @Composable
+fun MixedPackChoiceDialog(
+    animatedCount: Int,
+    staticCount: Int,
+    onSplit: () -> Unit,
+    onKeepTogether: () -> Unit,
+) {
+    // Not dismissible: a conversion is suspended waiting for the answer, and
+    // there is no sensible default to pick on the user's behalf -- one choice
+    // costs an extra pack, the other costs the animation.
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+        ),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.background,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.mixed_pack_title),
+                    style = MaterialTheme.typography.headlineMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = stringResource(R.string.mixed_pack_body, animatedCount, staticCount),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(32.dp))
+                Button(
+                    onClick = onSplit,
+                    colors = appButtonColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_split_by_type))
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onKeepTogether,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.action_keep_together))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DuplicatePackOverwriteDialog(
     packTitle: String,
     onOverwrite: () -> Unit,

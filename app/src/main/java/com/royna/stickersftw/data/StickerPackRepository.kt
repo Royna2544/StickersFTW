@@ -151,6 +151,7 @@ class StickerPackRepository(private val appContext: Context) {
         input: String,
         partIndex: Int = 0,
         bias: ConversionBias = ConversionBias.Auto,
+        onMixedPack: suspend (animated: Int, static: Int) -> Boolean = { _, _ -> false },
     ): Flow<PackOperationProgress> = flow {
         placeholderPack(packId, input, partIndex)
         val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
@@ -170,7 +171,7 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias, onMixedPack)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
@@ -186,6 +187,7 @@ class StickerPackRepository(private val appContext: Context) {
         packId: String,
         backendConfig: TelegramBackendConfig,
         bias: ConversionBias = ConversionBias.Auto,
+        onMixedPack: suspend (animated: Int, static: Int) -> Boolean = { _, _ -> false },
     ): Flow<PackOperationProgress> = flow {
         val pack = packDao.getPack(packId) ?: run {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
@@ -210,7 +212,7 @@ class StickerPackRepository(private val appContext: Context) {
         val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
         val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias, onMixedPack)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_update_failed)
         finalizePackFailed(packId, message)
@@ -287,6 +289,7 @@ class StickerPackRepository(private val appContext: Context) {
         input: String,
         selectedIds: Set<String>,
         bias: ConversionBias = ConversionBias.Auto,
+        onMixedPack: suspend (animated: Int, static: Int) -> Boolean = { _, _ -> false },
     ): Flow<PackOperationProgress> = flow {
         placeholderPack(packId, input, CUSTOM_PART_INDEX)
         val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
@@ -302,7 +305,7 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX, bias)
+        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, " (Custom)", CUSTOM_PART_INDEX, bias, onMixedPack)
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_import_failed)
         finalizePackFailed(packId, message)
@@ -444,6 +447,7 @@ class StickerPackRepository(private val appContext: Context) {
         titleSuffix: String,
         partIndex: Int = 0,
         bias: ConversionBias = ConversionBias.Auto,
+        onMixedPack: suspend (animated: Int, static: Int) -> Boolean = { _, _ -> false },
     ) {
         val backend = TelegramBackendProvider.resolve(backendConfig)
         val now = System.currentTimeMillis()
@@ -602,7 +606,30 @@ class StickerPackRepository(private val appContext: Context) {
         }
         // Derived from what conversion actually produced, not from the
         // source's nominal format -- see StickerConversionPipeline.
-        val packIsAnimated = animatedCount >= staticCount && animatedCount > 0
+        //
+        // WhatsApp accepts a pack that is entirely animated or entirely
+        // static, never a mix, so one side has to give. Which side is the
+        // user's call, and it used to be made silently by majority: a pack of
+        // 26 stills and 2 animations quietly flattened both animations to
+        // their first frame with nothing said.
+        var flattenedWarning: String? = null
+        var packIsAnimated = animatedCount >= staticCount && animatedCount > 0
+        if (animatedCount > 0 && staticCount > 0) {
+            if (onMixedPack(animatedCount, staticCount)) {
+                splitAnimatedIntoOwnPack(packId, setDto, convertedForFixup, bias)
+                // Whatever is left in this pack is now one kind throughout.
+                packIsAnimated = false
+                convertedCount -= animatedCount
+                convertedForFixup.removeAll { it.isAnimated }
+            } else {
+                val minority = if (packIsAnimated) staticCount else animatedCount
+                flattenedWarning = appContext.resources.getQuantityString(
+                    R.plurals.warn_mixed_pack_flattened,
+                    minority,
+                    minority,
+                )
+            }
+        }
         reconcileWhatsappAnimatedMismatches(convertedForFixup, packIsAnimated, bias)
 
         if (convertedCount == 0) {
@@ -621,6 +648,7 @@ class StickerPackRepository(private val appContext: Context) {
             packId,
             packIsAnimated,
             trayFile.absolutePath.takeIf { trayReady },
+            warning = flattenedWarning,
             bias = bias,
         )
 
@@ -947,6 +975,80 @@ class StickerPackRepository(private val appContext: Context) {
         )
     }
 
+    /** Moves the animated stickers of a mixed pack into a pack of their own,
+     * leaving the static ones where they are, so neither kind has to be
+     * destroyed to satisfy WhatsApp's all-or-nothing rule.
+     *
+     * The new pack takes [ANIMATED_SPLIT_PART_INDEX] rather than the part
+     * index it came from. Duplicate detection keys on set name plus part
+     * index, and two packs claiming the same pair would make re-importing
+     * either one ambiguous -- the same reason a hand-picked import uses
+     * [CUSTOM_PART_INDEX]. Files move rather than being reconverted: they are
+     * already correct, and a rename inside the same directory tree is free
+     * next to decoding a video sticker again. */
+    private suspend fun splitAnimatedIntoOwnPack(
+        packId: String,
+        setDto: StickerSetDto,
+        converted: List<WhatsappConvertedSticker>,
+        bias: ConversionBias,
+    ) {
+        val source = packDao.getPack(packId) ?: return
+        val animated = converted.filter { it.isAnimated }
+        if (animated.isEmpty()) return
+
+        val newPackId = UUID.randomUUID().toString()
+        val newDir = File(appContext.filesDir, "packs/$newPackId")
+        File(newDir, "converted").mkdirs()
+        File(newDir, "original").mkdirs()
+
+        val movedPaths = mutableMapOf<String, String>()
+        for (sticker in animated) {
+            val target = File(newDir, "converted/${sticker.output.name}")
+            if (sticker.output.renameTo(target)) movedPaths[sticker.output.absolutePath] = target.absolutePath
+        }
+
+        val now = System.currentTimeMillis()
+        val rows = stickerDao.getStickersOnce(packId)
+            .filter { it.convertedWhatsappPath in movedPaths }
+        packDao.upsert(
+            source.copy(
+                id = newPackId,
+                title = source.title + appContext.getString(R.string.pack_animated_suffix),
+                stickerCount = rows.size,
+                isAnimatedPack = true,
+                status = PackStatus.Ready.name,
+                trayIconPath = null,
+                whatsappAdded = false,
+                createdAtMillis = now,
+                updatedAtMillis = now,
+                importPartIndex = ANIMATED_SPLIT_PART_INDEX,
+                conversionBias = bias.name,
+            ),
+        )
+        stickerDao.upsertAll(
+            rows.mapIndexed { index, row ->
+                row.copy(
+                    rowId = 0,
+                    packId = newPackId,
+                    position = index,
+                    convertedWhatsappPath = movedPaths[row.convertedWhatsappPath],
+                )
+            },
+        )
+        rows.forEach { stickerDao.deleteByRowId(it.rowId) }
+
+        val first = rows.firstOrNull()?.convertedWhatsappPath?.let { movedPaths[it] }?.let(::File)
+        val trayFile = File(newDir, "tray.webp")
+        val trayReady = first != null &&
+            StickerConversionPipeline.buildTrayIcon(first, StickerMediaType.Static, trayFile) is
+                StickerConvertResult.Success
+        if (trayReady) {
+            updatePack(newPackId) { it.copy(trayIconPath = trayFile.absolutePath) }
+        }
+
+        updatePack(packId) { it.copy(stickerCount = it.stickerCount - rows.size) }
+    }
+
     /** Marks anything left mid-flight as failed. Called at startup when no
      * operation is running, which can only mean the previous process went
      * away before finishing one. */
@@ -1122,6 +1224,12 @@ class StickerPackRepository(private val appContext: Context) {
          * selection, distinct from part index 0 (a real "part 1" or a
          * whole, unsplit pack) -- see [StickerPack.importPartIndex]. */
         const val CUSTOM_PART_INDEX = -1
+
+        /** Part index for the animated half of a pack the user chose to split
+         * by type. Distinct from any real part so duplicate detection, which
+         * keys on set name plus part index, can still tell the two halves
+         * apart -- same reasoning as [CUSTOM_PART_INDEX]. */
+        const val ANIMATED_SPLIT_PART_INDEX = -2
     }
 
     private fun describeNetworkError(e: Exception): String = when (e) {

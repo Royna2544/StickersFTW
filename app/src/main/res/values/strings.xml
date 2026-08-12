@@ -51,6 +51,15 @@
     <string name="my_packs_title">My Packs</string>
     <string name="search_packs_placeholder">Search packs…</string>
     <string name="pack_placeholder_title">Importing…</string>
+    <string name="pack_animated_suffix">" (Animated)"</string>
+
+    <!-- Mixed animated/static pack -->
+    <string name="mixed_pack_title">Animated and still stickers together</string>
+    <string name="mixed_pack_body">This pack has %1$d animated and %2$d still stickers. WhatsApp only accepts a pack that is all one or all the other.
+
+Splitting keeps both, as two packs. Keeping them together saves the smaller group as still images, losing their animation.</string>
+    <string name="action_split_by_type">Split into two packs</string>
+    <string name="action_keep_together">Keep as one pack</string>
     <string name="conversion_elapsed_label">Elapsed</string>
     <string name="stage_starting">Starting…</string>
     <string name="err_operation_interrupted">Interrupted before it finished. Import it again to retry.</string>
@@ -279,5 +288,9 @@
     <plurals name="date_weeks_ago">
         <item quantity="one">%1$d week ago</item>
         <item quantity="other">%1$d weeks ago</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="one">%1$d sticker was saved as a still image so the pack is all one kind, which is all WhatsApp accepts.</item>
+        <item quantity="other">%1$d stickers were saved as still images so the pack is all one kind, which is all WhatsApp accepts.</item>
     </plurals>
 </resources>
