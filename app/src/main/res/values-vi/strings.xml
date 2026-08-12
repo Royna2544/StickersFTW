@@ -221,7 +221,7 @@
     <string name="date_today">Hôm nay</string>
     <string name="date_yesterday">Hôm qua</string>
     <string name="pack_animated_suffix">" (Động)"</string>
-    <string name="mixed_pack_title">Nhãn dán động và tĩnh lẫn lộn</string>
+    <string name="mixed_pack_title">Nhãn dán động và tĩnh trong cùng gói</string>
     <string name="mixed_pack_body">Gói này có %1$d nhãn dán động và %2$d nhãn dán tĩnh. WhatsApp chỉ chấp nhận gói toàn động hoặc toàn tĩnh.\n\nTách ra sẽ giữ được cả hai, thành hai gói. Giữ chung sẽ lưu nhóm nhỏ hơn thành ảnh tĩnh và mất hiệu ứng động.</string>
     <string name="action_split_by_type">Tách thành hai gói</string>
     <string name="action_keep_together">Giữ thành một gói</string>
