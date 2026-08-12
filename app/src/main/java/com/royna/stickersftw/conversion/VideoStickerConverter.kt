@@ -155,7 +155,7 @@ object VideoStickerConverter {
             wanted,
         ) { pts, image ->
             val bitmap = imageToBitmap(image, alphaPlanes[pts])
-            collected += TimedFrame(pts / 1000, BitmapPrep.centerCropSquareAndScale(bitmap, targetPx))
+            collected += TimedFrame(pts / 1000, BitmapPrep.fitSquareWithPadding(bitmap, targetPx))
         }
         if (!colourDecoded) return null
 
@@ -286,7 +286,7 @@ object VideoStickerConverter {
                             val bitmap = imageToBitmap(image, null)
                             collected += TimedFrame(
                                 ptsUs / 1000,
-                                BitmapPrep.centerCropSquareAndScale(bitmap, targetPx),
+                                BitmapPrep.fitSquareWithPadding(bitmap, targetPx),
                             )
                         }
                     }

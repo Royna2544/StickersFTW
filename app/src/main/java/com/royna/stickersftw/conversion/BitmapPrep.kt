@@ -1,6 +1,8 @@
 package com.royna.stickersftw.conversion
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.core.graphics.createBitmap
 
 /** Shared bitmap sizing helpers. Deliberately never calls Bitmap.recycle():
  * this pipeline converts one sticker at a time (bounding peak memory to
@@ -8,13 +10,33 @@ import android.graphics.Bitmap
  * that might still be referenced elsewhere is a hard-crash risk not worth
  * taking for a transient decode buffer the GC will reclaim shortly anyway. */
 object BitmapPrep {
-    /** Center-crops to a square, then scales to targetPx x targetPx. */
-    fun centerCropSquareAndScale(source: Bitmap, targetPx: Int): Bitmap {
-        val side = minOf(source.width, source.height)
-        val x = (source.width - side) / 2
-        val y = (source.height - side) / 2
-        val cropped = Bitmap.createBitmap(source, x, y, side, side)
-        return Bitmap.createScaledBitmap(cropped, targetPx, targetPx, true)
+    /** Scales to fit a targetPx square, preserving aspect, and centres the
+     * result on a transparent canvas.
+     *
+     * This used to centre-crop to the shorter side instead, which is only
+     * lossless for a sticker that was already square. Telegram sets are full
+     * of ones that are not -- a 512x316 sticker lost 38% of its width, a
+     * 512x213 one would lose 58%, and what went was whatever happened to be
+     * near the edges: speech bubbles, captions, the sides of a face. WhatsApp
+     * needs exactly 512x512, but padding gets there without discarding
+     * anything, and transparent padding is invisible against every chat
+     * background. */
+    fun fitSquareWithPadding(source: Bitmap, targetPx: Int): Bitmap {
+        val scale = targetPx.toFloat() / maxOf(source.width, source.height)
+        val width = (source.width * scale).toInt().coerceIn(1, targetPx)
+        val height = (source.height * scale).toInt().coerceIn(1, targetPx)
+        val scaled = Bitmap.createScaledBitmap(source, width, height, true)
+
+        if (width == targetPx && height == targetPx) return scaled
+
+        val square = createBitmap(targetPx, targetPx)
+        Canvas(square).drawBitmap(
+            scaled,
+            ((targetPx - width) / 2).toFloat(),
+            ((targetPx - height) / 2).toFloat(),
+            null,
+        )
+        return square
     }
 
     /** Scales preserving aspect ratio so the longer side equals targetLongSidePx. */

@@ -158,7 +158,7 @@ object StickerConversionPipeline {
         val frame = firstFrameFor(input, stickerType, SizeBudget.TRAY_PX)
             ?: return StickerConvertResult.Failed("Could not build a tray icon.")
         val outcome = StaticStickerConverter.compressWithBudget(
-            BitmapPrep.centerCropSquareAndScale(frame, SizeBudget.TRAY_PX),
+            BitmapPrep.fitSquareWithPadding(frame, SizeBudget.TRAY_PX),
             output,
             SizeBudget.TRAY_MAX_BYTES,
         )
@@ -211,7 +211,7 @@ object StickerConversionPipeline {
         StickerMediaType.Video -> VideoStickerConverter.extractFrames(input, targetPx)
         else -> {
             val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return null
-            listOf(TimedFrame(0L, BitmapPrep.centerCropSquareAndScale(bitmap, targetPx)))
+            listOf(TimedFrame(0L, BitmapPrep.fitSquareWithPadding(bitmap, targetPx)))
         }
     }
 
