@@ -220,6 +220,11 @@
     <string name="stage_retrying">Nouvelle tentative… (%1$d/%2$d)</string>
     <string name="date_today">Aujourd’hui</string>
     <string name="date_yesterday">Hier</string>
+    <string name="pack_animated_suffix">" (Animé)"</string>
+    <string name="mixed_pack_title">Stickers animés et fixes ensemble</string>
+    <string name="mixed_pack_body">Ce pack contient %1$d stickers animés et %2$d stickers fixes. WhatsApp n\'accepte qu\'un pack entièrement animé ou entièrement fixe.\n\nLe séparer conserve les deux, en deux packs. Les garder ensemble enregistre le plus petit groupe en images fixes, qui perdent leur animation.</string>
+    <string name="action_split_by_type">Séparer en deux packs</string>
+    <string name="action_keep_together">Garder en un seul pack</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d sticker</item>
         <item quantity="other">%1$d stickers</item>
@@ -239,5 +244,9 @@
     <plurals name="date_weeks_ago">
         <item quantity="one">il y a %1$d semaine</item>
         <item quantity="other">il y a %1$d semaines</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="one">%1$d sticker a été enregistré en image fixe pour que le pack soit d\'un seul type, le seul cas accepté par WhatsApp.</item>
+        <item quantity="other">%1$d stickers ont été enregistrés en images fixes pour que le pack soit d\'un seul type, le seul cas accepté par WhatsApp.</item>
     </plurals>
 </resources>

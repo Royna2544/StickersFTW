@@ -220,6 +220,11 @@
     <string name="stage_retrying">Tentando novamente… (%1$d/%2$d)</string>
     <string name="date_today">Hoje</string>
     <string name="date_yesterday">Ontem</string>
+    <string name="pack_animated_suffix">" (Animado)"</string>
+    <string name="mixed_pack_title">Figurinhas animadas e estáticas juntas</string>
+    <string name="mixed_pack_body">Este pacote tem %1$d figurinhas animadas e %2$d estáticas. O WhatsApp só aceita um pacote inteiramente animado ou inteiramente estático.\n\nDividir mantém os dois tipos, em dois pacotes. Manter juntos salva o grupo menor como imagens estáticas, perdendo a animação.</string>
+    <string name="action_split_by_type">Dividir em dois pacotes</string>
+    <string name="action_keep_together">Manter em um pacote</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d figurinha</item>
         <item quantity="other">%1$d figurinhas</item>
@@ -239,5 +244,9 @@
     <plurals name="date_weeks_ago">
         <item quantity="one">há %1$d semana</item>
         <item quantity="other">há %1$d semanas</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="one">%1$d figurinha foi salva como imagem estática para o pacote ficar de um tipo só, que é o que o WhatsApp aceita.</item>
+        <item quantity="other">%1$d figurinhas foram salvas como imagens estáticas para o pacote ficar de um tipo só, que é o que o WhatsApp aceita.</item>
     </plurals>
 </resources>

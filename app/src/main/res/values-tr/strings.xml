@@ -220,6 +220,11 @@
     <string name="stage_retrying">Yeniden deneniyor… (%1$d/%2$d)</string>
     <string name="date_today">Bugün</string>
     <string name="date_yesterday">Dün</string>
+    <string name="pack_animated_suffix">" (Hareketli)"</string>
+    <string name="mixed_pack_title">Hareketli ve sabit çıkartmalar bir arada</string>
+    <string name="mixed_pack_body">Bu pakette %1$d hareketli ve %2$d sabit çıkartma var. WhatsApp yalnızca tamamı hareketli ya da tamamı sabit paketleri kabul eder.\n\nAyırmak ikisini de iki paket hâlinde korur. Bir arada tutmak, küçük olan grubu sabit görüntü olarak kaydeder ve hareketleri kaybolur.</string>
+    <string name="action_split_by_type">İki pakete ayır</string>
+    <string name="action_keep_together">Tek paket olarak tut</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d çıkartma</item>
         <item quantity="other">%1$d çıkartma</item>
@@ -239,5 +244,9 @@
     <plurals name="date_weeks_ago">
         <item quantity="one">%1$d hafta önce</item>
         <item quantity="other">%1$d hafta önce</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="one">Paketin tamamı tek tür olsun diye %1$d çıkartma sabit görüntü olarak kaydedildi; WhatsApp yalnızca bunu kabul ediyor.</item>
+        <item quantity="other">Paketin tamamı tek tür olsun diye %1$d çıkartma sabit görüntü olarak kaydedildi; WhatsApp yalnızca bunu kabul ediyor.</item>
     </plurals>
 </resources>

@@ -220,6 +220,11 @@
     <string name="stage_retrying">Se reîncearcă… (%1$d/%2$d)</string>
     <string name="date_today">Astăzi</string>
     <string name="date_yesterday">Ieri</string>
+    <string name="pack_animated_suffix">" (Animat)"</string>
+    <string name="mixed_pack_title">Stickere animate și statice împreună</string>
+    <string name="mixed_pack_body">Acest pachet are %1$d stickere animate și %2$d statice. WhatsApp acceptă doar un pachet complet animat sau complet static.\n\nÎmpărțirea le păstrează pe amândouă, în două pachete. Păstrate împreună, grupul mai mic se salvează ca imagini statice și își pierde animația.</string>
+    <string name="action_split_by_type">Împarte în două pachete</string>
+    <string name="action_keep_together">Păstrează într-un pachet</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d sticker</item>
         <item quantity="few">%1$d stickere</item>
@@ -244,5 +249,10 @@
         <item quantity="one">acum %1$d săptămână</item>
         <item quantity="few">acum %1$d săptămâni</item>
         <item quantity="other">acum %1$d de săptămâni</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="one">%1$d sticker a fost salvat ca imagine statică pentru ca pachetul să fie de un singur fel, singurul acceptat de WhatsApp.</item>
+        <item quantity="few">%1$d stickere au fost salvate ca imagini statice pentru ca pachetul să fie de un singur fel, singurul acceptat de WhatsApp.</item>
+        <item quantity="other">%1$d de stickere au fost salvate ca imagini statice pentru ca pachetul să fie de un singur fel, singurul acceptat de WhatsApp.</item>
     </plurals>
 </resources>

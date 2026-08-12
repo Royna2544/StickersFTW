@@ -220,6 +220,11 @@
     <string name="stage_retrying">جارٍ إعادة المحاولة… (%1$d/%2$d)</string>
     <string name="date_today">اليوم</string>
     <string name="date_yesterday">أمس</string>
+    <string name="pack_animated_suffix">" (متحرك)"</string>
+    <string name="mixed_pack_title">ملصقات متحركة وثابتة معًا</string>
+    <string name="mixed_pack_body">تحتوي هذه الحزمة على %1$d ملصق متحرك و%2$d ملصق ثابت. لا يقبل واتساب إلا حزمة كلها متحركة أو كلها ثابتة.\n\nالتقسيم يحتفظ بالنوعين في حزمتين. الإبقاء عليهما معًا يحفظ المجموعة الأصغر كصور ثابتة، فتفقد حركتها.</string>
+    <string name="action_split_by_type">تقسيم إلى حزمتين</string>
+    <string name="action_keep_together">الإبقاء كحزمة واحدة</string>
     <plurals name="stickers_count">
         <item quantity="zero">لا ملصقات</item>
         <item quantity="one">ملصق واحد</item>
@@ -259,5 +264,13 @@
         <item quantity="few">قبل %1$d أسابيع</item>
         <item quantity="many">قبل %1$d أسبوعًا</item>
         <item quantity="other">قبل %1$d أسبوع</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="zero">لم يُحفظ أي ملصق كصورة ثابتة.</item>
+        <item quantity="one">حُفظ ملصق واحد كصورة ثابتة ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
+        <item quantity="two">حُفظ ملصقان كصورتين ثابتتين ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
+        <item quantity="few">حُفظت %1$d ملصقات كصور ثابتة ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
+        <item quantity="many">حُفظ %1$d ملصقًا كصور ثابتة ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
+        <item quantity="other">حُفظ %1$d ملصق كصور ثابتة ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
     </plurals>
 </resources>

@@ -220,6 +220,11 @@
     <string name="stage_retrying">फिर कोशिश हो रही है… (%1$d/%2$d)</string>
     <string name="date_today">आज</string>
     <string name="date_yesterday">कल</string>
+    <string name="pack_animated_suffix">" (एनिमेटेड)"</string>
+    <string name="mixed_pack_title">एनिमेटेड और स्थिर स्टिकर एक साथ</string>
+    <string name="mixed_pack_body">इस पैक में %1$d एनिमेटेड और %2$d स्थिर स्टिकर हैं। WhatsApp केवल ऐसा पैक स्वीकार करता है जो पूरी तरह एक ही प्रकार का हो।\n\nअलग करने पर दोनों बचे रहेंगे, दो पैक के रूप में। एक साथ रखने पर छोटे समूह को स्थिर छवियों के रूप में सहेजा जाएगा और उनका एनिमेशन चला जाएगा।</string>
+    <string name="action_split_by_type">दो पैक में बाँटें</string>
+    <string name="action_keep_together">एक ही पैक रखें</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d स्टिकर</item>
         <item quantity="other">%1$d स्टिकर</item>
@@ -239,5 +244,9 @@
     <plurals name="date_weeks_ago">
         <item quantity="one">%1$d सप्ताह पहले</item>
         <item quantity="other">%1$d सप्ताह पहले</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="one">%1$d स्टिकर को स्थिर छवि के रूप में सहेजा गया ताकि पूरा पैक एक ही प्रकार का हो; WhatsApp केवल यही स्वीकार करता है।</item>
+        <item quantity="other">%1$d स्टिकर स्थिर छवियों के रूप में सहेजे गए ताकि पूरा पैक एक ही प्रकार का हो; WhatsApp केवल यही स्वीकार करता है।</item>
     </plurals>
 </resources>

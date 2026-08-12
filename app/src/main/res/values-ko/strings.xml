@@ -220,6 +220,11 @@
     <string name="stage_retrying">다시 시도 중… (%1$d/%2$d)</string>
     <string name="date_today">오늘</string>
     <string name="date_yesterday">어제</string>
+    <string name="pack_animated_suffix">" (움직이는)"</string>
+    <string name="mixed_pack_title">움직이는 스티커와 정지 스티커가 섞여 있음</string>
+    <string name="mixed_pack_body">이 팩에는 움직이는 스티커 %1$d개와 정지 스티커 %2$d개가 있습니다. WhatsApp은 전부 움직이거나 전부 정지된 팩만 허용합니다.\n\n나누면 둘 다 두 개의 팩으로 유지됩니다. 하나로 두면 더 적은 쪽이 정지 이미지로 저장되어 움직임이 사라집니다.</string>
+    <string name="action_split_by_type">두 팩으로 나누기</string>
+    <string name="action_keep_together">한 팩으로 두기</string>
     <plurals name="stickers_count">
         <item quantity="other">스티커 %1$d개</item>
     </plurals>
@@ -234,5 +239,8 @@
     </plurals>
     <plurals name="date_weeks_ago">
         <item quantity="other">%1$d주 전</item>
+    </plurals>
+    <plurals name="warn_mixed_pack_flattened">
+        <item quantity="other">팩을 한 종류로 맞추기 위해 스티커 %1$d개를 정지 이미지로 저장했습니다. WhatsApp이 허용하는 형태입니다.</item>
     </plurals>
 </resources>
