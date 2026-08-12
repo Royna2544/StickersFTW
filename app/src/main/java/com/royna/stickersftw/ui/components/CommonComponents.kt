@@ -506,7 +506,11 @@ fun PackListCard(
                 ) {
                     PackStatusChip(pack.status)
                     Text(
-                        text = pluralStringResource(R.plurals.stickers_count, pack.stickerCount, pack.stickerCount),
+                        // Splitting a mixed pack leaves two rows whose titles
+                        // differ only by a suffix the list truncates away, so
+                        // the kind has to be visible here.
+                        text = pluralStringResource(R.plurals.stickers_count, pack.stickerCount, pack.stickerCount) +
+                            if (pack.isAnimated) stringResource(R.string.pack_detail_animated_suffix) else "",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

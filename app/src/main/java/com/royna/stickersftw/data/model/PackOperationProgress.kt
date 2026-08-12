@@ -14,6 +14,12 @@ sealed class PackOperationProgress {
         val fraction: Float,
         val slowFormat: Boolean = false,
     ) : PackOperationProgress()
-    data class Complete(val packId: String) : PackOperationProgress()
+    /** [splitPackId] is the animated pack created when the user chose to
+     * split a mixed pack, so the success screen can offer both halves rather
+     * than silently reporting only the one that kept the original id. */
+    data class Complete(
+        val packId: String,
+        val splitPackId: String? = null,
+    ) : PackOperationProgress()
     data class Failed(val message: String) : PackOperationProgress()
 }

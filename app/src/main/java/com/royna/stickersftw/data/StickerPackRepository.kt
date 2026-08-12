@@ -613,10 +613,11 @@ class StickerPackRepository(private val appContext: Context) {
         // 26 stills and 2 animations quietly flattened both animations to
         // their first frame with nothing said.
         var flattenedWarning: String? = null
+        var splitPackId: String? = null
         var packIsAnimated = animatedCount >= staticCount && animatedCount > 0
         if (animatedCount > 0 && staticCount > 0) {
             if (onMixedPack(animatedCount, staticCount)) {
-                splitAnimatedIntoOwnPack(packId, setDto, convertedForFixup, bias)
+                splitPackId = splitAnimatedIntoOwnPack(packId, setDto, convertedForFixup, bias)
                 // Whatever is left in this pack is now one kind throughout.
                 packIsAnimated = false
                 convertedCount -= animatedCount
@@ -653,7 +654,7 @@ class StickerPackRepository(private val appContext: Context) {
         )
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
-        emit(PackOperationProgress.Complete(packId))
+        emit(PackOperationProgress.Complete(packId, splitPackId))
     }
 
     // ---- Create (local media -> Telegram push and/or WhatsApp) ------------
@@ -991,10 +992,10 @@ class StickerPackRepository(private val appContext: Context) {
         setDto: StickerSetDto,
         converted: List<WhatsappConvertedSticker>,
         bias: ConversionBias,
-    ) {
-        val source = packDao.getPack(packId) ?: return
+    ): String? {
+        val source = packDao.getPack(packId) ?: return null
         val animated = converted.filter { it.isAnimated }
-        if (animated.isEmpty()) return
+        if (animated.isEmpty()) return null
 
         val newPackId = UUID.randomUUID().toString()
         val newDir = File(appContext.filesDir, "packs/$newPackId")
@@ -1047,6 +1048,7 @@ class StickerPackRepository(private val appContext: Context) {
         }
 
         updatePack(packId) { it.copy(stickerCount = it.stickerCount - rows.size) }
+        return newPackId
     }
 
     /** Marks anything left mid-flight as failed. Called at startup when no

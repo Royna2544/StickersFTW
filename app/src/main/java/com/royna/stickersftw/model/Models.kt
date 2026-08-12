@@ -169,6 +169,9 @@ data class ConversionUiState(
     /** The pack contains video stickers, which take minutes rather than
      * seconds. Sticky once seen. */
     val isSlowFormat: Boolean = false,
+    /** Set when a mixed pack was split: the animated half, which is a
+     * separate pack the user still has to add to WhatsApp. */
+    val splitPackId: String? = null,
 )
 
 enum class PickedMediaKind {
