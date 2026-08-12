@@ -177,7 +177,7 @@
     <string name="badge_added_to_whatsapp">WhatsApp’a eklendi</string>
     <string name="badge_on_telegram">Telegram’da</string>
     <string name="badge_on_telegram_partial">Telegram’da (%1$d/%2$d)</string>
-    <string name="pack_detail_animated_suffix"> · hareketli</string>
+    <string name="pack_detail_animated_suffix">" · hareketli"</string>
     <string name="custom_picker_title">Çıkartma seç</string>
     <string name="action_deselect_all">Tüm seçimleri kaldır</string>
     <string name="action_select_all">Tümünü seç</string>

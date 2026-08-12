@@ -177,7 +177,7 @@
     <string name="badge_added_to_whatsapp">WhatsApp में जोड़ा गया</string>
     <string name="badge_on_telegram">Telegram पर मौजूद</string>
     <string name="badge_on_telegram_partial">Telegram पर मौजूद (%1$d/%2$d)</string>
-    <string name="pack_detail_animated_suffix"> · एनिमेटेड</string>
+    <string name="pack_detail_animated_suffix">" · एनिमेटेड"</string>
     <string name="custom_picker_title">स्टिकर चुनें</string>
     <string name="action_deselect_all">सभी का चयन हटाएँ</string>
     <string name="action_select_all">सभी चुनें</string>

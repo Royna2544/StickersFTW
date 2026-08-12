@@ -177,7 +177,7 @@
     <string name="badge_added_to_whatsapp">Ajouté à WhatsApp</string>
     <string name="badge_on_telegram">Sur Telegram</string>
     <string name="badge_on_telegram_partial">Sur Telegram (%1$d/%2$d)</string>
-    <string name="pack_detail_animated_suffix"> · animé</string>
+    <string name="pack_detail_animated_suffix">" · animé"</string>
     <string name="custom_picker_title">Choisir des stickers</string>
     <string name="action_deselect_all">Tout désélectionner</string>
     <string name="action_select_all">Tout sélectionner</string>
