@@ -486,7 +486,12 @@ fun PackListCard(
                         text = pack.title,
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f, fill = false),
-                        maxLines = 1,
+                        // Two lines because the part number lives at the end
+                        // of the title -- "(Part 2/4)" and the "(Animated)"
+                        // suffix a split adds are exactly what a single line
+                        // ellipsises away, leaving several rows that read
+                        // identically.
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (pack.isPinned) {
