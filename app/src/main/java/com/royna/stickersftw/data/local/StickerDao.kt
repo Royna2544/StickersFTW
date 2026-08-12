@@ -26,6 +26,9 @@ interface StickerDao {
     @Upsert
     suspend fun upsertAll(stickers: List<StickerEntity>)
 
+    @Query("DELETE FROM stickers WHERE rowId = :rowId")
+    suspend fun deleteByRowId(rowId: Long)
+
     @Upsert
     suspend fun upsert(sticker: StickerEntity): Long
 
