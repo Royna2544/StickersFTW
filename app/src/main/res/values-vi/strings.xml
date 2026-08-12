@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">Gói này có %1$d nhãn dán động và %2$d nhãn dán tĩnh. WhatsApp chỉ chấp nhận gói toàn động hoặc toàn tĩnh.\n\nTách ra sẽ giữ được cả hai, thành hai gói. Giữ chung sẽ lưu nhóm nhỏ hơn thành ảnh tĩnh và mất hiệu ứng động.</string>
     <string name="action_split_by_type">Tách thành hai gói</string>
     <string name="action_keep_together">Giữ thành một gói</string>
+    <string name="conversion_split_label">Gói động</string>
+    <string name="conversion_split_body">Các nhãn dán động đã chuyển sang gói riêng, \"%1$s\". Thêm cả hai để có đầy đủ.</string>
     <plurals name="stickers_count">
         <item quantity="other">%1$d nhãn dán</item>
     </plurals>

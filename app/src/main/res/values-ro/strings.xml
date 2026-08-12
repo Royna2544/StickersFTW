@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">Acest pachet are %1$d stickere animate și %2$d statice. WhatsApp acceptă doar un pachet complet animat sau complet static.\n\nÎmpărțirea le păstrează pe amândouă, în două pachete. Păstrate împreună, grupul mai mic se salvează ca imagini statice și își pierde animația.</string>
     <string name="action_split_by_type">Împarte în două pachete</string>
     <string name="action_keep_together">Păstrează într-un pachet</string>
+    <string name="conversion_split_label">Pachet animat</string>
+    <string name="conversion_split_body">Stickerele animate au ajuns în propriul pachet, \"%1$s\". Adaugă-le pe amândouă ca să ai tot.</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d sticker</item>
         <item quantity="few">%1$d stickere</item>

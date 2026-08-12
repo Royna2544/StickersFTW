@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">Bu pakette %1$d hareketli ve %2$d sabit çıkartma var. WhatsApp yalnızca tamamı hareketli ya da tamamı sabit paketleri kabul eder.\n\nAyırmak ikisini de iki paket hâlinde korur. Bir arada tutmak, küçük olan grubu sabit görüntü olarak kaydeder ve hareketleri kaybolur.</string>
     <string name="action_split_by_type">İki pakete ayır</string>
     <string name="action_keep_together">Tek paket olarak tut</string>
+    <string name="conversion_split_label">Hareketli paket</string>
+    <string name="conversion_split_body">Hareketli çıkartmalar kendi paketine taşındı: \"%1$s\". Hepsini almak için ikisini de ekleyin.</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d çıkartma</item>
         <item quantity="other">%1$d çıkartma</item>

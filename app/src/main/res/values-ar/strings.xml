@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">تحتوي هذه الحزمة على %1$d ملصق متحرك و%2$d ملصق ثابت. لا يقبل واتساب إلا حزمة كلها متحركة أو كلها ثابتة.\n\nالتقسيم يحتفظ بالنوعين في حزمتين. الإبقاء عليهما معًا يحفظ المجموعة الأصغر كصور ثابتة، فتفقد حركتها.</string>
     <string name="action_split_by_type">تقسيم إلى حزمتين</string>
     <string name="action_keep_together">الإبقاء كحزمة واحدة</string>
+    <string name="conversion_split_label">الحزمة المتحركة</string>
+    <string name="conversion_split_body">انتقلت الملصقات المتحركة إلى حزمة خاصة بها، \"%1$s\". أضف الحزمتين للحصول على كل شيء.</string>
     <plurals name="stickers_count">
         <item quantity="zero">لا ملصقات</item>
         <item quantity="one">ملصق واحد</item>

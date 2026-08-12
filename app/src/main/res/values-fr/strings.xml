@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">Ce pack contient %1$d stickers animés et %2$d stickers fixes. WhatsApp n\'accepte qu\'un pack entièrement animé ou entièrement fixe.\n\nLe séparer conserve les deux, en deux packs. Les garder ensemble enregistre le plus petit groupe en images fixes, qui perdent leur animation.</string>
     <string name="action_split_by_type">Séparer en deux packs</string>
     <string name="action_keep_together">Garder en un seul pack</string>
+    <string name="conversion_split_label">Pack animé</string>
+    <string name="conversion_split_body">Les stickers animés sont allés dans leur propre pack, \"%1$s\". Ajoutez les deux pour tout avoir.</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d sticker</item>
         <item quantity="other">%1$d stickers</item>

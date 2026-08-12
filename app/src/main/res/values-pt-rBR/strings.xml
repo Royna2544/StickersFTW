@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">Este pacote tem %1$d figurinhas animadas e %2$d estáticas. O WhatsApp só aceita um pacote inteiramente animado ou inteiramente estático.\n\nDividir mantém os dois tipos, em dois pacotes. Manter juntos salva o grupo menor como imagens estáticas, perdendo a animação.</string>
     <string name="action_split_by_type">Dividir em dois pacotes</string>
     <string name="action_keep_together">Manter em um pacote</string>
+    <string name="conversion_split_label">Pacote animado</string>
+    <string name="conversion_split_body">As figurinhas animadas foram para um pacote próprio, \"%1$s\". Adicione os dois para ter tudo.</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d figurinha</item>
         <item quantity="other">%1$d figurinhas</item>

@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">इस पैक में %1$d एनिमेटेड और %2$d स्थिर स्टिकर हैं। WhatsApp केवल ऐसा पैक स्वीकार करता है जो पूरी तरह एक ही प्रकार का हो।\n\nअलग करने पर दोनों बचे रहेंगे, दो पैक के रूप में। एक साथ रखने पर छोटे समूह को स्थिर छवियों के रूप में सहेजा जाएगा और उनका एनिमेशन चला जाएगा।</string>
     <string name="action_split_by_type">दो पैक में बाँटें</string>
     <string name="action_keep_together">एक ही पैक रखें</string>
+    <string name="conversion_split_label">एनिमेटेड पैक</string>
+    <string name="conversion_split_body">एनिमेटेड स्टिकर अपने अलग पैक \"%1$s\" में चले गए। सब कुछ पाने के लिए दोनों जोड़ें।</string>
     <plurals name="stickers_count">
         <item quantity="one">%1$d स्टिकर</item>
         <item quantity="other">%1$d स्टिकर</item>

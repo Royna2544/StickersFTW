@@ -225,6 +225,8 @@
     <string name="mixed_pack_body">이 팩에는 움직이는 스티커 %1$d개와 정지 스티커 %2$d개가 있습니다. WhatsApp은 전부 움직이거나 전부 정지된 팩만 허용합니다.\n\n나누면 둘 다 두 개의 팩으로 유지됩니다. 하나로 두면 더 적은 쪽이 정지 이미지로 저장되어 움직임이 사라집니다.</string>
     <string name="action_split_by_type">두 팩으로 나누기</string>
     <string name="action_keep_together">한 팩으로 두기</string>
+    <string name="conversion_split_label">움직이는 팩</string>
+    <string name="conversion_split_body">움직이는 스티커는 별도의 팩 \"%1$s\"으로 옮겨졌습니다. 전부 사용하려면 두 팩을 모두 추가하세요.</string>
     <plurals name="stickers_count">
         <item quantity="other">스티커 %1$d개</item>
     </plurals>
