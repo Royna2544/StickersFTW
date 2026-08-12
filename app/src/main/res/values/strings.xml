@@ -218,7 +218,7 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="badge_added_to_whatsapp">Added to WhatsApp</string>
     <string name="badge_on_telegram">On Telegram</string>
     <string name="badge_on_telegram_partial">On Telegram (%1$d/%2$d)</string>
-    <string name="pack_detail_animated_suffix"> · animated</string>
+    <string name="pack_detail_animated_suffix">" · animated"</string>
 
     <!-- Custom sticker picker screen -->
     <string name="custom_picker_title">Pick stickers</string>
