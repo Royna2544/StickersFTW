@@ -36,6 +36,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.royna.stickersftw.R
@@ -61,6 +63,8 @@ fun ConversionScreen(
     onOpenPacks: () -> Unit,
     onBuildWhatsappIntent: () -> Intent?,
     onWhatsappResult: () -> Unit,
+    splitPack: StickerPack? = null,
+    onBuildSplitWhatsappIntent: () -> Intent? = { null },
     showConvertOtherParts: Boolean = false,
     onConvertOtherParts: () -> Unit = {},
     onRunInBackground: () -> Unit = {},
@@ -215,6 +219,16 @@ fun ConversionScreen(
                         if (state.startedAtMillis > 0L) {
                             InfoRow(stringResource(R.string.conversion_elapsed_label), formatElapsed(elapsedMs))
                         }
+                        if (splitPack != null) {
+                            InfoRow(
+                                stringResource(R.string.conversion_split_label),
+                                pluralStringResource(
+                                    R.plurals.stickers_count,
+                                    splitPack.stickerCount,
+                                    splitPack.stickerCount,
+                                ),
+                            )
+                        }
                     }
                 }
             }
@@ -230,6 +244,23 @@ fun ConversionScreen(
                     }
                 }
                 state.isComplete -> {
+                    // Two packs came out of one import, so one "Add to
+                    // WhatsApp" would quietly ship half the stickers.
+                    if (splitPack != null) {
+                        Text(
+                            text = stringResource(R.string.conversion_split_body, splitPack.title),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = pack?.title.orEmpty(),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                    }
                     AddToWhatsAppButton(
                         enabled = true,
                         whatsappAvailable = whatsappAvailable,
@@ -237,6 +268,22 @@ fun ConversionScreen(
                         onResult = onWhatsappResult,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    if (splitPack != null) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            text = splitPack.title,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        AddToWhatsAppButton(
+                            enabled = true,
+                            whatsappAvailable = whatsappAvailable,
+                            onBuildIntent = onBuildSplitWhatsappIntent,
+                            onResult = onWhatsappResult,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     if (showConvertOtherParts) {
                         Spacer(Modifier.height(12.dp))
                         OutlinedButton(

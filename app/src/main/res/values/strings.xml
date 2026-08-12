@@ -61,6 +61,8 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="action_split_by_type">Split into two packs</string>
     <string name="action_keep_together">Keep as one pack</string>
     <string name="conversion_elapsed_label">Elapsed</string>
+    <string name="conversion_split_label">Animated pack</string>
+    <string name="conversion_split_body">The animated stickers went into their own pack, \"%1$s\". Add both to get everything.</string>
     <string name="stage_starting">Starting…</string>
     <string name="err_operation_interrupted">Interrupted before it finished. Import it again to retry.</string>
     <string name="settings_section_conversion_bias">Animated stickers</string>

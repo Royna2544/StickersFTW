@@ -206,6 +206,7 @@ private fun PackOperationProgress.toUiState(
         isComplete = true,
         startedAtMillis = startedAtMillis,
         isSlowFormat = slowFormat,
+        splitPackId = splitPackId,
     )
     is PackOperationProgress.Failed -> ConversionUiState(
         packId = packId,

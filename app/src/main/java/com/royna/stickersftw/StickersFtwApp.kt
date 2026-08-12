@@ -410,9 +410,14 @@ fun StickersFtwApp(
                 // of a pack that was actually split into more than one part.
                 val showConvertOtherParts = pack?.origin == PackOrigin.Imported &&
                     (loadedPreview?.partCount ?: 1) > 1
+                val splitPack = conversion.splitPackId?.let { id -> packs.firstOrNull { it.id == id } }
                 ConversionScreen(
                     pack = pack,
                     state = conversion,
+                    splitPack = splitPack,
+                    onBuildSplitWhatsappIntent = {
+                        splitPack?.let { viewModel.addToWhatsappIntent(it.id, it.title, useBusinessWhatsapp) }
+                    },
                     whatsappAvailable = whatsappAvailable,
                     onBack = { navController.popBackStack() },
                     onOpenPacks = {
