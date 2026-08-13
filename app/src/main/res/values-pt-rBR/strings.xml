@@ -50,7 +50,7 @@
     <string name="conversion_bias_auto_body">Equilibra as duas opções. Reduz a qualidade primeiro e só remove quadros se isso não for suficiente.</string>
     <string name="conversion_bias_smoothness_body">Mantém o máximo possível de quadros e reduz mais a qualidade para caber no limite. A conversão é mais lenta e as figurinhas de vídeo podem parecer suaves.</string>
     <string name="conversion_slow_title">Esta operação demora um pouco</string>
-    <string name="conversion_slow_body">Figurinhas de vídeo demoram para converter. Cada quadro é decodificado duas vezes, uma para a imagem e outra para a transparência, e o pacote é recodificado com qualidade cada vez menor até cada figurinha caber no limite de 500KB do WhatsApp. O processo pode levar minutos, não segundos. Você pode deixá-lo rodando em segundo plano.</string>
+    <string name="conversion_slow_body">Figurinhas animadas demoram para converter. Cada quadro precisa ser renderizado ou decodificado separadamente, e figurinhas de vídeo são decodificadas duas vezes, uma para a imagem e outra para a transparência. Depois o pacote é recodificado com qualidade cada vez menor até cada figurinha caber no limite de 500KB do WhatsApp. O processo pode levar minutos, não segundos. Você pode deixá-lo rodando em segundo plano.</string>
     <string name="my_packs_empty">Nenhum pacote ainda</string>
     <string name="my_packs_search_no_results">Nenhum pacote corresponde à pesquisa</string>
     <string name="pack_filter_pinned">Fixados</string>

@@ -50,7 +50,7 @@
     <string name="conversion_bias_auto_body">Équilibre les deux. Réduit d’abord la qualité et ne supprime des images que si nécessaire.</string>
     <string name="conversion_bias_smoothness_body">Conserve autant d’images que possible et réduit davantage la qualité. La conversion est plus lente et les stickers vidéo peuvent paraître flous.</string>
     <string name="conversion_slow_title">Cette opération prend du temps</string>
-    <string name="conversion_slow_body">Les stickers vidéo sont lents à convertir. Chaque image est décodée deux fois, une fois pour l’image et une fois pour la transparence, puis le pack est réencodé avec une qualité décroissante jusqu’à ce que chaque sticker respecte la limite de 500KB de WhatsApp. Comptez plusieurs minutes plutôt que quelques secondes. Vous pouvez laisser l’opération s’exécuter en arrière-plan.</string>
+    <string name="conversion_slow_body">Les stickers animés sont lents à convertir. Chaque image doit être rendue ou décodée séparément, et les stickers vidéo sont décodés deux fois, une fois pour l’image et une fois pour la transparence. Le pack est ensuite réencodé avec une qualité décroissante jusqu’à ce que chaque sticker respecte la limite de 500KB de WhatsApp. Comptez plusieurs minutes plutôt que quelques secondes. Vous pouvez laisser l’opération s’exécuter en arrière-plan.</string>
     <string name="my_packs_empty">Aucun pack</string>
     <string name="my_packs_search_no_results">Aucun pack ne correspond à votre recherche</string>
     <string name="pack_filter_pinned">Épinglés</string>

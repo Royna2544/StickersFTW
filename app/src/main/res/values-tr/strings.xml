@@ -50,7 +50,7 @@
     <string name="conversion_bias_auto_body">İkisini dengeler. Önce kaliteyi düşürür, yalnızca bu yeterli olmazsa kareleri azaltır.</string>
     <string name="conversion_bias_smoothness_body">Olabildiğince çok kareyi korur ve boyuta sığmak için kaliteyi daha fazla düşürür. Dönüşüm daha yavaştır ve video çıkartmaları yumuşak görünebilir.</string>
     <string name="conversion_slow_title">Bu işlem biraz sürecek</string>
-    <string name="conversion_slow_body">Video çıkartmalarının dönüştürülmesi yavaştır. Her kare, biri görüntü diğeri saydamlık için olmak üzere iki kez çözülür; ardından her çıkartma WhatsApp’ın 500KB sınırına sığana kadar paket giderek daha düşük kalitede yeniden kodlanır. Saniyeler yerine dakikalar sürebilir. Arka planda çalışmasına izin verebilirsiniz.</string>
+    <string name="conversion_slow_body">Hareketli çıkartmaların dönüştürülmesi yavaştır. Her karenin ayrı ayrı işlenmesi veya çözülmesi gerekir; video çıkartmalarında her kare, biri görüntü diğeri saydamlık için olmak üzere iki kez çözülür. Ardından her çıkartma WhatsApp’ın 500KB sınırına sığana kadar paket giderek daha düşük kalitede yeniden kodlanır. Saniyeler yerine dakikalar sürebilir. Arka planda çalışmasına izin verebilirsiniz.</string>
     <string name="my_packs_empty">Henüz paket yok</string>
     <string name="my_packs_search_no_results">Aramanızla eşleşen paket yok</string>
     <string name="pack_filter_pinned">Sabitlenen</string>

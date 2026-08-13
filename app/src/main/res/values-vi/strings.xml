@@ -50,7 +50,7 @@
     <string name="conversion_bias_auto_body">Cân bằng giữa độ sắc nét và độ mượt. Giảm chất lượng trước, chỉ giảm số khung hình khi vẫn chưa đáp ứng được giới hạn.</string>
     <string name="conversion_bias_smoothness_body">Giữ lại nhiều khung hình nhất có thể và giảm chất lượng nhiều hơn để đáp ứng giới hạn. Quá trình chuyển đổi sẽ chậm hơn và nhãn dán video có thể trông kém sắc nét.</string>
     <string name="conversion_slow_title">Quá trình này sẽ mất một lúc</string>
-    <string name="conversion_slow_body">Nhãn dán video mất nhiều thời gian hơn để chuyển đổi. Mỗi khung hình được xử lý hai lần: một lần cho hình ảnh và một lần cho độ trong suốt. Sau đó, gói được mã hóa lại với chất lượng giảm dần cho đến khi mỗi nhãn dán đáp ứng giới hạn 500 KB của WhatsApp. Quá trình này có thể mất vài phút. Bạn có thể để ứng dụng chạy trong nền.</string>
+    <string name="conversion_slow_body">Nhãn dán động mất nhiều thời gian hơn để chuyển đổi. Mỗi khung hình phải được kết xuất hoặc giải mã riêng, và nhãn dán video được giải mã hai lần: một lần cho hình ảnh và một lần cho độ trong suốt. Sau đó, gói được mã hóa lại với chất lượng giảm dần cho đến khi mỗi nhãn dán đáp ứng giới hạn 500 KB của WhatsApp. Quá trình này có thể mất vài phút. Bạn có thể để ứng dụng chạy trong nền.</string>
     <string name="my_packs_empty">Chưa có gói nào</string>
     <string name="my_packs_search_no_results">Không tìm thấy gói nào phù hợp</string>
     <string name="pack_filter_pinned">Đã ghim</string>

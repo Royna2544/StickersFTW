@@ -50,7 +50,7 @@
     <string name="conversion_bias_auto_body">Echilibrează cele două variante. Reduce mai întâi calitatea și elimină cadre doar dacă nu este suficient.</string>
     <string name="conversion_bias_smoothness_body">Păstrează cât mai multe cadre și reduce mai mult calitatea pentru a se încadra. Conversia este mai lentă, iar stickerele video pot părea neclare.</string>
     <string name="conversion_slow_title">Aceasta durează puțin</string>
-    <string name="conversion_slow_body">Stickerele video se convertesc lent. Fiecare cadru este decodat de două ori, o dată pentru imagine și o dată pentru transparență, apoi pachetul este recodificat la calități tot mai mici până când fiecare sticker respectă limita WhatsApp de 500KB. Procesul poate dura minute, nu secunde. Îl poți lăsa să ruleze în fundal.</string>
+    <string name="conversion_slow_body">Stickerele animate se convertesc lent. Fiecare cadru trebuie randat sau decodat separat, iar stickerele video sunt decodate de două ori, o dată pentru imagine și o dată pentru transparență. Apoi pachetul este recodificat la calități tot mai mici până când fiecare sticker respectă limita WhatsApp de 500KB. Procesul poate dura minute, nu secunde. Îl poți lăsa să ruleze în fundal.</string>
     <string name="my_packs_empty">Niciun pachet încă</string>
     <string name="my_packs_search_no_results">Niciun pachet nu corespunde căutării</string>
     <string name="pack_filter_pinned">Fixate</string>
