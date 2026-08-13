@@ -4,8 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.media.Image
 import android.media.MediaCodec
+import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
+import android.util.Log
 import java.io.File
 import java.nio.ByteBuffer
 import kotlin.coroutines.coroutineContext
@@ -45,6 +47,7 @@ import kotlinx.coroutines.ensureActive
  * Those files take [extractFramesWithAlpha]; everything else stays on the
  * MediaExtractor path. */
 object VideoStickerConverter {
+    private const val TAG = "VideoStickerConverter"
     private const val MAX_FRAMES = 120
     private const val DEQUEUE_TIMEOUT_US = 10_000L
 
@@ -174,9 +177,8 @@ object VideoStickerConverter {
         return try {
             val format = MediaFormat.createVideoFormat(track.mime, track.width, track.height)
             track.codecPrivate?.let { format.setByteBuffer("csd-0", ByteBuffer.wrap(it)) }
-            val decoder = MediaCodec.createDecoderByType(track.mime)
+            val decoder = createConfiguredDecoder(track.mime, format)
             codec = decoder
-            decoder.configure(format, null, null, 0)
             decoder.start()
 
             val bufferInfo = MediaCodec.BufferInfo()
@@ -216,7 +218,8 @@ object VideoStickerConverter {
                 }
             }
             true
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "alpha-demuxed decode failed (${track.mime} ${track.width}x${track.height})", e)
             false
         } finally {
             releaseQuietly(codec)
@@ -239,9 +242,8 @@ object VideoStickerConverter {
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
             extractor.selectTrack(trackIndex)
 
-            val decoder = MediaCodec.createDecoderByType(mime)
+            val decoder = createConfiguredDecoder(mime, format)
             codec = decoder
-            decoder.configure(format, null, null, 0)
             decoder.start()
 
             val maxDurationUs = maxDurationMs * 1000
@@ -299,13 +301,73 @@ object VideoStickerConverter {
                 }
             }
 
+            if (collected.isEmpty()) {
+                Log.w(TAG, "extractor path decoded no frames from ${videoFile.name}")
+            }
             collected.takeIf { it.isNotEmpty() }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // A bare swallow here made every decoder problem surface as the
+            // same unexplained "could not decode any usable frames", with
+            // nothing in the log to say which sticker or why.
+            Log.w(TAG, "extractor path failed on ${videoFile.name}", e)
             null
         } finally {
             releaseQuietly(codec)
             extractor.release()
         }
+    }
+
+    /** Picks a decoder for [mime] that will actually accept this frame size.
+     *
+     * Telegram video stickers are not always an even number of pixels tall --
+     * 512x393 turned up in a real pack. Decoders that require 2-aligned
+     * dimensions answer such a size from [MediaCodec.configure] with a bare
+     * [IllegalArgumentException] carrying no message, which surfaced as an
+     * unexplained "could not decode any usable frames" and one sticker
+     * silently missing from the pack.
+     *
+     * The frame size is NOT rounded to make it fit. That was tried first and
+     * is actively dangerous: configuring the emulator's VP9 decoder at 512x392
+     * for a bitstream that says 393 aborts the process from native code
+     * (SIGABRT in CodecLooper), taking a running conversion down with it. The
+     * dimensions handed to configure have to match the bitstream, so the only
+     * safe move is to find a decoder that takes them as they are -- devices
+     * typically ship several for VP9, and the software one is far more liberal
+     * about odd sizes than the hardware one.
+     *
+     * If nothing will take it, this throws and the caller records that single
+     * sticker as failed, which the pack's warning then reports. */
+    private fun createConfiguredDecoder(mime: String, format: MediaFormat): MediaCodec {
+        val width = format.getInteger(MediaFormat.KEY_WIDTH)
+        val height = format.getInteger(MediaFormat.KEY_HEIGHT)
+
+        val candidates = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+            .filter { info ->
+                !info.isEncoder && info.supportedTypes.any { it.equals(mime, ignoreCase = true) }
+            }
+            // Ask each one whether it can take this exact size, and try those
+            // that say yes first. It is only a hint -- configure remains the
+            // real test -- but it usually gets the right decoder on the first
+            // attempt instead of after a rejection.
+            .sortedByDescending { info ->
+                runCatching {
+                    info.getCapabilitiesForType(mime).videoCapabilities?.isSizeSupported(width, height)
+                }.getOrNull() ?: false
+            }
+
+        var lastFailure: Exception? = null
+        for (info in candidates) {
+            val decoder = runCatching { MediaCodec.createByCodecName(info.name) }.getOrNull() ?: continue
+            try {
+                decoder.configure(format, null, null, 0)
+                return decoder
+            } catch (e: Exception) {
+                releaseQuietly(decoder)
+                lastFailure = e
+                Log.w(TAG, "${info.name} rejected ${width}x$height for $mime")
+            }
+        }
+        throw lastFailure ?: IllegalStateException("no $mime decoder accepts ${width}x$height")
     }
 
     private fun releaseQuietly(codec: MediaCodec?) {

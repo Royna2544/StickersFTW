@@ -119,7 +119,7 @@ class StickerPackRepository(private val appContext: Context) {
                 PreviewResult.Loaded(
                     PackPreview(
                         shortName = dto.name,
-                        title = dto.title,
+                        title = sanitizeTitle(dto.title),
                         totalStickerCount = dto.stickers.size,
                         partCount = partRanges.size,
                         stickers = dto.stickers.map { PreviewSticker(it.id, it.emoji, it.thumb) },
@@ -469,7 +469,7 @@ class StickerPackRepository(private val appContext: Context) {
                 telegramSetName = setDto.name,
                 pushShortName = null,
                 sourceUrl = input,
-                title = setDto.title + titleSuffix,
+                title = sanitizeTitle(setDto.title) + titleSuffix,
                 publisher = "@$shortNameInput",
                 stickerCount = stickerDtos.size,
                 isAnimatedPack = false,
@@ -612,7 +612,20 @@ class StickerPackRepository(private val appContext: Context) {
         // user's call, and it used to be made silently by majority: a pack of
         // 26 stills and 2 animations quietly flattened both animations to
         // their first frame with nothing said.
-        var flattenedWarning: String? = null
+        // A sticker the decoder refused leaves the pack smaller than the count
+        // recorded when it was queued for download. Left unreconciled the pack
+        // claims stickers it does not have, and the user is told nothing at
+        // all -- which is how a 4-sticker pack shipped 3 without a word.
+        val warnings = mutableListOf<String>()
+        val droppedCount = downloadedFiles.size - convertedCount
+        if (droppedCount > 0) {
+            warnings += appContext.resources.getQuantityString(
+                R.plurals.warn_stickers_dropped,
+                droppedCount,
+                droppedCount,
+            )
+        }
+
         var splitPackId: String? = null
         var packIsAnimated = animatedCount >= staticCount && animatedCount > 0
         if (animatedCount > 0 && staticCount > 0) {
@@ -631,7 +644,7 @@ class StickerPackRepository(private val appContext: Context) {
                 convertedForFixup.removeAll { it.isAnimated }
             } else {
                 val minority = if (packIsAnimated) staticCount else animatedCount
-                flattenedWarning = appContext.resources.getQuantityString(
+                warnings += appContext.resources.getQuantityString(
                     R.plurals.warn_mixed_pack_flattened,
                     minority,
                     minority,
@@ -656,8 +669,9 @@ class StickerPackRepository(private val appContext: Context) {
             packId,
             packIsAnimated,
             trayFile.absolutePath.takeIf { trayReady },
-            warning = flattenedWarning,
+            warning = warnings.joinToString(" ").ifEmpty { null },
             bias = bias,
+            stickerCount = convertedCount,
         )
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
@@ -1130,7 +1144,10 @@ class StickerPackRepository(private val appContext: Context) {
         val sortedStickers = stickers.sortedBy { it.position }
         return StickerPack(
             id = pack.id,
-            title = pack.title,
+            // Also scrubbed on the way in, but rows written before that was
+            // added still hold the raw title, and a stored one would otherwise
+            // keep garbling the UI around it forever.
+            title = sanitizeTitle(pack.title),
             author = pack.publisher,
             origin = PackOrigin.valueOf(pack.origin),
             stickerCount = pack.stickerCount,
@@ -1194,6 +1211,30 @@ class StickerPackRepository(private val appContext: Context) {
 
     private fun sanitizeFileName(raw: String): String =
         raw.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifBlank { "sticker" }
+
+    /** Strips Unicode bidirectional formatting characters out of a pack title.
+     *
+     * A pack title is remote text that this app then interpolates into its own
+     * sentences. A real Telegram pack turned up carrying an unterminated
+     * U+2067 RIGHT-TO-LEFT ISOLATE, and it did not stay inside the title: the
+     * overwrite prompt rendered as `"<title> is already in My Packs."');
+     * ?Overwrite it with this import`, with the app's own question mark
+     * dragged to the front of the line. Text that reorders the sentence around
+     * it can also reorder it into saying something else, which is the standard
+     * bidi spoofing trick and not something to leave in a confirmation dialog.
+     *
+     * Removing the controls rather than balancing them is deliberate: a title
+     * in a right-to-left script still lays out correctly from its own strong
+     * characters, so nothing legitimate is lost, and the title travels on into
+     * WhatsApp's UI and notifications where this app cannot wrap it in
+     * isolates even if it wanted to. */
+    private fun sanitizeTitle(raw: String): String =
+        raw.filterNot { char ->
+            val code = char.code
+            code in 0x202A..0x202E || // LRE, RLE, PDF, LRO, RLO
+                code in 0x2066..0x2069 || // LRI, RLI, FSI, PDI
+                code == 0x200E || code == 0x200F // LRM, RLM
+        }.trim().ifBlank { raw.trim() }
 
     private data class WhatsappConvertedSticker(
         val file: File,
@@ -1284,11 +1325,16 @@ class StickerPackRepository(private val appContext: Context) {
         trayIconPath: String?,
         warning: String? = null,
         bias: ConversionBias? = null,
+        /** What conversion actually produced. The count written at download
+         * time is the intended one, and a sticker the decoder refuses would
+         * otherwise leave the pack advertising more than it holds. */
+        stickerCount: Int? = null,
     ) {
         updatePack(packId) {
             it.copy(
                 status = PackStatus.Ready.name,
                 isAnimatedPack = isAnimated,
+                stickerCount = stickerCount ?: it.stickerCount,
                 trayIconPath = trayIconPath ?: it.trayIconPath,
                 warningMessage = warning,
                 errorMessage = null,
