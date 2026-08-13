@@ -566,7 +566,15 @@ class StickerPackRepository(private val appContext: Context) {
         // classified -- the server backend gives no usable type up front.
         // Downloads are the quick part, so this still lands well before the
         // conversion the user would otherwise sit through wondering.
-        val slowFormat = downloadedFiles.any { (_, _, type) -> type == StickerMediaType.Video }
+        //
+        // Lottie counts as slow too, not just video. Hot Cherry's 17 Lottie
+        // stickers took 4:55 with no warning shown at all, because every frame
+        // still has to be rendered one at a time and then run through the same
+        // re-encode ladder to fit 500KB. Which format it is barely changes how
+        // long the user waits.
+        val slowFormat = downloadedFiles.any { (_, _, type) ->
+            type == StickerMediaType.Video || type == StickerMediaType.AnimatedLottie
+        }
 
         for ((index, item) in downloadedFiles.withIndex()) {
             val (remoteId, file, type) = item
