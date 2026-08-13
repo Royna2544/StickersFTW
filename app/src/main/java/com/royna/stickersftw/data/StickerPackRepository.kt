@@ -696,7 +696,11 @@ class StickerPackRepository(private val appContext: Context) {
                 id = packId,
                 origin = PackOrigin.Created.name,
                 telegramSetName = null,
-                pushShortName = shortName,
+                // Blank means the pack was created for WhatsApp only, so it
+                // has no Telegram identity at all. Stored as null rather than
+                // "" so a later push reports the missing name properly instead
+                // of asking Telegram to register an empty one.
+                pushShortName = shortName.ifBlank { null },
                 sourceUrl = null,
                 title = title,
                 publisher = "You",

@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -89,7 +90,13 @@ fun CreatePackScreen(
     val shortNameResult = if (shortName.isBlank()) null else ShortNameValidator.validate(shortName, botUsername)
     val normalizedShortName = (shortNameResult as? ShortNameValidator.Result.Valid)?.baseName
     val shortNameValid = normalizedShortName != null
-    val canPublish = mediaItems.size >= 3 && title.isNotBlank() && shortNameValid && (pushToTelegram || addToWhatsapp)
+    // The short name is the t.me/addstickers/<name> identifier, so it means
+    // nothing to a WhatsApp-only pack. Requiring it regardless made a
+    // WhatsApp-only pack impossible to create without inventing a Telegram
+    // name for a set that would never exist.
+    val canPublish = mediaItems.size >= 3 && title.isNotBlank() &&
+        (!pushToTelegram || shortNameValid) &&
+        (pushToTelegram || addToWhatsapp)
 
     Scaffold(
         topBar = {
@@ -192,19 +199,38 @@ fun CreatePackScreen(
             OutlinedTextField(
                 value = shortName,
                 onValueChange = { shortName = it.filter { c -> c.isLetterOrDigit() || c == '_' } },
+                enabled = pushToTelegram,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.create_pack_short_name_label)) },
                 supportingText = {
                     Text(
-                        when (val result = shortNameResult) {
-                            null, is ShortNameValidator.Result.Valid -> stringResource(R.string.create_pack_short_name_hint_valid)
-                            is ShortNameValidator.Result.WrongBotSuffix ->
-                                stringResource(R.string.create_pack_short_name_hint_wrong_bot, result.suffixBot)
-                            is ShortNameValidator.Result.InvalidFormat ->
-                                stringResource(R.string.create_pack_short_name_hint_invalid)
+                        if (!pushToTelegram) {
+                            // Say why it is greyed out. A disabled field with
+                            // its usual formatting rules underneath reads as
+                            // something the user has failed to satisfy.
+                            stringResource(R.string.create_pack_short_name_telegram_only)
+                        } else {
+                            when (val result = shortNameResult) {
+                                null, is ShortNameValidator.Result.Valid -> stringResource(R.string.create_pack_short_name_hint_valid)
+                                is ShortNameValidator.Result.WrongBotSuffix ->
+                                    stringResource(R.string.create_pack_short_name_hint_wrong_bot, result.suffixBot)
+                                is ShortNameValidator.Result.InvalidFormat ->
+                                    stringResource(R.string.create_pack_short_name_hint_invalid)
+                            }
                         },
                     )
                 },
+                // Material3's disabled default is onSurface at 38%, which over
+                // this background is too faint to read the explanation through.
+                // The field is dimmed enough to read as inactive, while the
+                // label and supporting text stay legible -- the same trade the
+                // disabled buttons make in appButtonColors.
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    disabledSupportingTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                ),
                 singleLine = true,
             )
 
@@ -220,9 +246,15 @@ fun CreatePackScreen(
 
             Button(
                 onClick = {
-                    normalizedShortName?.let {
-                        onPublish(mediaItems.toList(), title.trim(), it, pushToTelegram, addToWhatsapp)
-                    }
+                    // Blank when Telegram is unchecked; the repository stores
+                    // that as no short name at all rather than an empty one.
+                    onPublish(
+                        mediaItems.toList(),
+                        title.trim(),
+                        normalizedShortName.orEmpty(),
+                        pushToTelegram,
+                        addToWhatsapp,
+                    )
                 },
                 enabled = canPublish,
                 colors = appButtonColors(),
