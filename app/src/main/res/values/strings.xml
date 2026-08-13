@@ -73,7 +73,7 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="conversion_bias_auto_body">Balances the two. Trades quality first, and only drops frames if that isn\'t enough.</string>
     <string name="conversion_bias_smoothness_body">Keeps every frame it can and lets quality fall further to fit. Slower to convert, and video stickers may look soft.</string>
     <string name="conversion_slow_title">This one takes a while</string>
-    <string name="conversion_slow_body">Animated stickers are slow to convert. Every frame has to be rendered or decoded on its own, and video stickers are decoded twice, once for the picture and once for the transparency. The pack is then re-encoded at lower and lower quality until each sticker fits WhatsApp's 500KB limit. Expect minutes rather than seconds. You can leave it running in the background.</string>
+    <string name="conversion_slow_body">Animated stickers are slow to convert. Every frame has to be rendered or decoded on its own, and video stickers are decoded twice, once for the picture and once for the transparency. The pack is then re-encoded at lower and lower quality until each sticker fits WhatsApp\'s 500KB limit. Expect minutes rather than seconds. You can leave it running in the background.</string>
     <string name="my_packs_empty">No packs yet</string>
     <string name="my_packs_search_no_results">No packs match your search</string>
     <string name="pack_filter_pinned">Pinned</string>
