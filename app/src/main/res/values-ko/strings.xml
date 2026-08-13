@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">팩 제목</string>
     <string name="create_pack_short_name_label">짧은 이름(Telegram용)</string>
     <string name="create_pack_short_name_hint_valid">영문자, 숫자, 밑줄만 사용할 수 있으며 영문자로 시작해야 합니다.</string>
+    <string name="create_pack_short_name_telegram_only">Telegram에 게시할 때만 필요합니다.</string>
     <string name="create_pack_short_name_hint_invalid">영문자로 시작하고 영문자, 숫자, 밑줄만 포함해야 합니다.</string>
     <string name="create_pack_short_name_hint_wrong_bot">이 이름에는 다른 봇(@%1$s)의 접미사가 붙어 있습니다. \"_by_…\" 부분을 삭제하세요.</string>
     <string name="create_pack_publish_to">게시 위치</string>

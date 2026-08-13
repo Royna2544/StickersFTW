@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">Tên gói</string>
     <string name="create_pack_short_name_label">Tên ngắn (dành cho Telegram)</string>
     <string name="create_pack_short_name_hint_valid">Chỉ gồm chữ cái, chữ số và dấu gạch dưới; phải bắt đầu bằng chữ cái.</string>
+    <string name="create_pack_short_name_telegram_only">Chỉ cần khi đăng lên Telegram.</string>
     <string name="create_pack_short_name_hint_invalid">Phải bắt đầu bằng chữ cái và chỉ được chứa chữ cái, chữ số và dấu gạch dưới.</string>
     <string name="create_pack_short_name_hint_wrong_bot">Tên này có hậu tố của một bot khác (@%1$s). Hãy xóa phần \"_by_…\".</string>
     <string name="create_pack_publish_to">Đăng lên</string>

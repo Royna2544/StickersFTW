@@ -193,6 +193,7 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="create_pack_title_label">Pack title</string>
     <string name="create_pack_short_name_label">Short name (for Telegram)</string>
     <string name="create_pack_short_name_hint_valid">Letters, digits and underscores; must start with a letter.</string>
+    <string name="create_pack_short_name_telegram_only">Only needed when publishing to Telegram.</string>
     <string name="create_pack_short_name_hint_invalid">Must start with a letter and contain only letters, digits and underscores.</string>
     <string name="create_pack_short_name_hint_wrong_bot">This name is suffixed for a different bot (@%1$s). Remove the \"_by_…\" part.</string>
     <string name="create_pack_publish_to">Publish to</string>

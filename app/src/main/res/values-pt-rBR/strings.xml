@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">Título do pacote</string>
     <string name="create_pack_short_name_label">Nome curto (para o Telegram)</string>
     <string name="create_pack_short_name_hint_valid">Letras, números e sublinhados; deve começar com uma letra.</string>
+    <string name="create_pack_short_name_telegram_only">Necessário apenas ao publicar no Telegram.</string>
     <string name="create_pack_short_name_hint_invalid">Deve começar com uma letra e conter apenas letras, números e sublinhados.</string>
     <string name="create_pack_short_name_hint_wrong_bot">Este nome tem o sufixo de outro bot (@%1$s). Remova a parte “_by_…”.</string>
     <string name="create_pack_publish_to">Publicar em</string>

@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">عنوان الحزمة</string>
     <string name="create_pack_short_name_label">الاسم القصير (لـ Telegram)</string>
     <string name="create_pack_short_name_hint_valid">حروف وأرقام وشرطات سفلية؛ يجب أن يبدأ بحرف.</string>
+    <string name="create_pack_short_name_telegram_only">مطلوب فقط عند النشر إلى Telegram.</string>
     <string name="create_pack_short_name_hint_invalid">يجب أن يبدأ بحرف وألا يحتوي إلا على حروف وأرقام وشرطات سفلية.</string>
     <string name="create_pack_short_name_hint_wrong_bot">هذا الاسم يحمل لاحقة بوت مختلف (@%1$s). أزل الجزء «_by_…».</string>
     <string name="create_pack_publish_to">النشر على</string>

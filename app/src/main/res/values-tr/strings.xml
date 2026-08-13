@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">Paket başlığı</string>
     <string name="create_pack_short_name_label">Kısa ad (Telegram için)</string>
     <string name="create_pack_short_name_hint_valid">Harf, rakam ve alt çizgi; harfle başlamalıdır.</string>
+    <string name="create_pack_short_name_telegram_only">Yalnızca Telegram’da yayımlarken gerekir.</string>
     <string name="create_pack_short_name_hint_invalid">Harfle başlamalı ve yalnızca harf, rakam ve alt çizgi içermelidir.</string>
     <string name="create_pack_short_name_hint_wrong_bot">Bu ad farklı bir botun (@%1$s) son ekini taşıyor. “_by_…” bölümünü kaldırın.</string>
     <string name="create_pack_publish_to">Yayımlama hedefi</string>

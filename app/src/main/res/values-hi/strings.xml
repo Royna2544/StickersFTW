@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">पैक का शीर्षक</string>
     <string name="create_pack_short_name_label">छोटा नाम (Telegram के लिए)</string>
     <string name="create_pack_short_name_hint_valid">अक्षर, अंक और अंडरस्कोर; पहले अक्षर होना चाहिए।</string>
+    <string name="create_pack_short_name_telegram_only">यह केवल Telegram पर प्रकाशित करते समय ज़रूरी है।</string>
     <string name="create_pack_short_name_hint_invalid">पहले अक्षर होना चाहिए और केवल अक्षर, अंक व अंडरस्कोर हो सकते हैं।</string>
     <string name="create_pack_short_name_hint_wrong_bot">इस नाम में किसी दूसरे बॉट (@%1$s) का प्रत्यय है। \"_by_…\" भाग हटाएँ।</string>
     <string name="create_pack_publish_to">यहाँ प्रकाशित करें</string>

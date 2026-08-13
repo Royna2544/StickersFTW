@@ -154,6 +154,7 @@
     <string name="create_pack_title_label">Titlul pachetului</string>
     <string name="create_pack_short_name_label">Nume scurt (pentru Telegram)</string>
     <string name="create_pack_short_name_hint_valid">Litere, cifre și liniuțe de subliniere; trebuie să înceapă cu o literă.</string>
+    <string name="create_pack_short_name_telegram_only">Necesar doar la publicarea pe Telegram.</string>
     <string name="create_pack_short_name_hint_invalid">Trebuie să înceapă cu o literă și să conțină doar litere, cifre și liniuțe de subliniere.</string>
     <string name="create_pack_short_name_hint_wrong_bot">Acest nume are sufixul altui bot (@%1$s). Elimină partea „_by_…”.</string>
     <string name="create_pack_publish_to">Publică pe</string>
