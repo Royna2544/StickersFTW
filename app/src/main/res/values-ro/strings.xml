@@ -257,4 +257,9 @@
         <item quantity="few">%1$d stickere au fost salvate ca imagini statice pentru ca pachetul să fie de un singur fel, singurul acceptat de WhatsApp.</item>
         <item quantity="other">%1$d de stickere au fost salvate ca imagini statice pentru ca pachetul să fie de un singur fel, singurul acceptat de WhatsApp.</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="one">%1$d sticker nu a putut fi convertit și a rămas în afara pachetului.</item>
+        <item quantity="few">%1$d stickere nu au putut fi convertite și au rămas în afara pachetului.</item>
+        <item quantity="other">%1$d de stickere nu au putut fi convertite și au rămas în afara pachetului.</item>
+    </plurals>
 </resources>

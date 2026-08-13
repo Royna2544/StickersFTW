@@ -251,4 +251,9 @@
         <item quantity="one">%1$d sticker a été enregistré en image fixe pour que le pack soit d\'un seul type, le seul cas accepté par WhatsApp.</item>
         <item quantity="other">%1$d stickers ont été enregistrés en images fixes pour que le pack soit d\'un seul type, le seul cas accepté par WhatsApp.</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="one">%1$d sticker n’a pas pu être converti et a été exclu du pack.</item>
+        <item quantity="many">%1$d stickers n’ont pas pu être convertis et ont été exclus du pack.</item>
+        <item quantity="other">%1$d stickers n’ont pas pu être convertis et ont été exclus du pack.</item>
+    </plurals>
 </resources>

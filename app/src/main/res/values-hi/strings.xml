@@ -251,4 +251,8 @@
         <item quantity="one">%1$d स्टिकर को स्थिर छवि के रूप में सहेजा गया ताकि पूरा पैक एक ही प्रकार का हो; WhatsApp केवल यही स्वीकार करता है।</item>
         <item quantity="other">%1$d स्टिकर स्थिर छवियों के रूप में सहेजे गए ताकि पूरा पैक एक ही प्रकार का हो; WhatsApp केवल यही स्वीकार करता है।</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="one">%1$d स्टिकर कन्वर्ट नहीं हो सका, इसलिए उसे पैक में शामिल नहीं किया गया।</item>
+        <item quantity="other">%1$d स्टिकर कन्वर्ट नहीं हो सके, इसलिए उन्हें पैक में शामिल नहीं किया गया।</item>
+    </plurals>
 </resources>

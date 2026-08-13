@@ -275,4 +275,12 @@
         <item quantity="many">حُفظ %1$d ملصقًا كصور ثابتة ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
         <item quantity="other">حُفظ %1$d ملصق كصور ثابتة ليكون نوع الحزمة موحدًا، وهو ما يقبله واتساب فقط.</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="zero">تعذّر تحويل أي ملصق، فلم يُضف شيء إلى الحزمة.</item>
+        <item quantity="one">تعذّر تحويل ملصق واحد فلم يُضف إلى الحزمة.</item>
+        <item quantity="two">تعذّر تحويل ملصقين فلم يُضافا إلى الحزمة.</item>
+        <item quantity="few">تعذّر تحويل %1$d ملصقات فلم تُضف إلى الحزمة.</item>
+        <item quantity="many">تعذّر تحويل %1$d ملصقًا فلم تُضف إلى الحزمة.</item>
+        <item quantity="other">تعذّر تحويل %1$d ملصق فلم تُضف إلى الحزمة.</item>
+    </plurals>
 </resources>

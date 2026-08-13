@@ -251,4 +251,9 @@
         <item quantity="one">%1$d figurinha foi salva como imagem estática para o pacote ficar de um tipo só, que é o que o WhatsApp aceita.</item>
         <item quantity="other">%1$d figurinhas foram salvas como imagens estáticas para o pacote ficar de um tipo só, que é o que o WhatsApp aceita.</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="one">%1$d figurinha não pôde ser convertida e ficou de fora do pacote.</item>
+        <item quantity="many">%1$d figurinhas não puderam ser convertidas e ficaram de fora do pacote.</item>
+        <item quantity="other">%1$d figurinhas não puderam ser convertidas e ficaram de fora do pacote.</item>
+    </plurals>
 </resources>

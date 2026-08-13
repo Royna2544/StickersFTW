@@ -245,4 +245,7 @@
     <plurals name="warn_mixed_pack_flattened">
         <item quantity="other">%1$d nhãn dán đã được lưu thành ảnh tĩnh để cả gói cùng một loại, thứ duy nhất WhatsApp chấp nhận.</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="other">Không thể chuyển đổi %1$d nhãn dán nên chúng không có trong gói.</item>
+    </plurals>
 </resources>

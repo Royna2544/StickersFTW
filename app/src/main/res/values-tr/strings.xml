@@ -251,4 +251,8 @@
         <item quantity="one">Paketin tamamı tek tür olsun diye %1$d çıkartma sabit görüntü olarak kaydedildi; WhatsApp yalnızca bunu kabul ediyor.</item>
         <item quantity="other">Paketin tamamı tek tür olsun diye %1$d çıkartma sabit görüntü olarak kaydedildi; WhatsApp yalnızca bunu kabul ediyor.</item>
     </plurals>
+    <plurals name="warn_stickers_dropped">
+        <item quantity="one">%1$d çıkartma dönüştürülemedi ve pakete eklenmedi.</item>
+        <item quantity="other">%1$d çıkartma dönüştürülemedi ve pakete eklenmedi.</item>
+    </plurals>
 </resources>
