@@ -183,7 +183,13 @@ fun MyPacksScreen(
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(top = 14.dp, bottom = 24.dp),
+                    // The Scaffold's FAB floats over this list and its inset
+                    // is not part of the content padding handed down, so the
+                    // bottom pad has to clear it by hand: 56dp button + 16dp
+                    // Scaffold margin, plus room to breathe. Without it the
+                    // last card's overflow menu sits under the FAB and cannot
+                    // be tapped at all.
+                    contentPadding = PaddingValues(top = 14.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(filteredPacks, key = { it.id }) { pack ->

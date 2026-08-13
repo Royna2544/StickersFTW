@@ -93,7 +93,9 @@ fun ConvertScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 158.dp),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 4.dp),
+                    // Bottom clears the Scaffold's FAB, which floats over this
+                    // grid without contributing to the padding passed down.
+                    contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 4.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                 ) {

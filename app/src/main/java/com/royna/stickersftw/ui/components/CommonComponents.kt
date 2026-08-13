@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -615,22 +617,28 @@ fun PackListCard(
 
 }
 
+/** The shell shared by the app's blocking, full-screen questions.
+ *
+ * These take over the screen rather than sitting in a card because each one
+ * is a decision the user cannot skip past. Going full screen means opting out
+ * of the dialog window's inset fitting: left on, the window stops short of
+ * the system bars and the scrim behind it shows through as grey bands above
+ * and below the surface, which reads as a layout bug rather than a choice. */
 @Composable
-fun MixedPackChoiceDialog(
-    animatedCount: Int,
-    staticCount: Int,
-    onSplit: () -> Unit,
-    onKeepTogether: () -> Unit,
+private fun FullScreenChoiceDialog(
+    title: String,
+    message: String,
+    onDismissRequest: () -> Unit,
+    dismissible: Boolean = true,
+    actions: @Composable ColumnScope.() -> Unit,
 ) {
-    // Not dismissible: a conversion is suspended waiting for the answer, and
-    // there is no sensible default to pick on the user's behalf -- one choice
-    // costs an extra pack, the other costs the animation.
     Dialog(
-        onDismissRequest = {},
+        onDismissRequest = onDismissRequest,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            dismissOnBackPress = false,
-            dismissOnClickOutside = false,
+            dismissOnBackPress = dismissible,
+            dismissOnClickOutside = dismissible,
+            decorFitsSystemWindows = false,
         ),
     ) {
         Surface(
@@ -640,38 +648,59 @@ fun MixedPackChoiceDialog(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .systemBarsPadding()
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(
-                    text = stringResource(R.string.mixed_pack_title),
+                    text = title,
                     style = MaterialTheme.typography.headlineMedium,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text = stringResource(R.string.mixed_pack_body, animatedCount, staticCount),
+                    text = message,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
                 Spacer(Modifier.height(32.dp))
-                Button(
-                    onClick = onSplit,
-                    colors = appButtonColors(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_split_by_type))
-                }
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = onKeepTogether,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_keep_together))
-                }
+                actions()
             }
+        }
+    }
+}
+
+@Composable
+fun MixedPackChoiceDialog(
+    animatedCount: Int,
+    staticCount: Int,
+    onSplit: () -> Unit,
+    onKeepTogether: () -> Unit,
+) {
+    FullScreenChoiceDialog(
+        title = stringResource(R.string.mixed_pack_title),
+        message = stringResource(R.string.mixed_pack_body, animatedCount, staticCount),
+        // Not dismissible: a conversion is suspended waiting for the answer,
+        // and there is no sensible default to pick on the user's behalf --
+        // one choice costs an extra pack, the other costs the animation.
+        onDismissRequest = {},
+        dismissible = false,
+    ) {
+        Button(
+            onClick = onSplit,
+            colors = appButtonColors(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_split_by_type))
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onKeepTogether,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_keep_together))
         }
     }
 }
@@ -682,48 +711,23 @@ fun DuplicatePackOverwriteDialog(
     onOverwrite: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Dialog(
+    FullScreenChoiceDialog(
+        title = stringResource(R.string.duplicate_pack_title),
+        message = stringResource(R.string.duplicate_pack_message, packTitle),
         onDismissRequest = onCancel,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background,
+        Button(
+            onClick = onOverwrite,
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = stringResource(R.string.duplicate_pack_title),
-                    style = MaterialTheme.typography.headlineMedium,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.duplicate_pack_message, packTitle),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(32.dp))
-                Button(
-                    onClick = onOverwrite,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_overwrite))
-                }
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            }
+            Text(stringResource(R.string.action_overwrite))
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_cancel))
         }
     }
 }
@@ -737,52 +741,27 @@ fun DeleteTelegramPackConfirmDialog(
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    Dialog(
+    FullScreenChoiceDialog(
+        title = stringResource(R.string.delete_telegram_pack_title),
+        message = stringResource(R.string.delete_telegram_pack_message, packTitle),
         onDismissRequest = onCancel,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background,
+        Button(
+            onClick = onConfirm,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = stringResource(R.string.delete_telegram_pack_title),
-                    style = MaterialTheme.typography.headlineMedium,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = stringResource(R.string.delete_telegram_pack_message, packTitle),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(32.dp))
-                Button(
-                    onClick = onConfirm,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_delete_from_telegram_and_local))
-                }
-                Spacer(Modifier.height(12.dp))
-                OutlinedButton(
-                    onClick = onCancel,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            }
+            Text(stringResource(R.string.action_delete_from_telegram_and_local))
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_cancel))
         }
     }
 }

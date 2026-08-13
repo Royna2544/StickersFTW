@@ -616,7 +616,14 @@ class StickerPackRepository(private val appContext: Context) {
         var splitPackId: String? = null
         var packIsAnimated = animatedCount >= staticCount && animatedCount > 0
         if (animatedCount > 0 && staticCount > 0) {
-            if (onMixedPack(animatedCount, staticCount)) {
+            // Both halves have to clear WhatsApp's 3-sticker floor for a split
+            // to be worth offering. One or two animated stickers among 27
+            // stills would otherwise become a second pack WhatsApp refuses to
+            // add -- strictly worse than flattening, and not a trade-off worth
+            // interrupting the conversion to ask about.
+            val canSplit = animatedCount >= SizeBudget.MIN_STICKERS &&
+                staticCount >= SizeBudget.MIN_STICKERS
+            if (canSplit && onMixedPack(animatedCount, staticCount)) {
                 splitPackId = splitAnimatedIntoOwnPack(packId, setDto, convertedForFixup, bias)
                 // Whatever is left in this pack is now one kind throughout.
                 packIsAnimated = false
