@@ -54,4 +54,11 @@ data class PackEntity(
      * carries the old value forward and bumps it, rather than restarting at 1
      * and relying on "different" being enough. */
     val imageDataVersion: Int = 1,
+    /** Sticker row whose source should be used when the tray is rebuilt.
+     * Null preserves a previously rendered tray that is no longer linked. */
+    val trayStickerRowId: Long? = null,
+    /** Local content revision last handed to an installed WhatsApp pack. */
+    val whatsappSyncedDataVersion: Int? = null,
+    /** Local content revision represented by the linked Telegram set. */
+    val telegramSyncedDataVersion: Int? = null,
 )

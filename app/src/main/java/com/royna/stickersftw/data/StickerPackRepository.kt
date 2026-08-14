@@ -761,6 +761,7 @@ class StickerPackRepository(private val appContext: Context) {
                     conversionStatus = "Pending",
                     conversionError = null,
                     trimStartMs = item.trimStartMs,
+                    trimDurationMs = item.trimDurationMs,
                     cropLeft = item.crop?.left,
                     cropTop = item.crop?.top,
                     cropRight = item.crop?.right,
@@ -803,6 +804,7 @@ class StickerPackRepository(private val appContext: Context) {
                     forceAnimated = pack.isAnimatedPack,
                     bias = bias,
                     trimStartMs = item.trimStartMs,
+                    trimDurationMs = item.trimDurationMs,
                     crop = item.crop,
                 )
             ) {
@@ -897,6 +899,7 @@ class StickerPackRepository(private val appContext: Context) {
                     conversionStatus = "Pending",
                     conversionError = null,
                     trimStartMs = item.trimStartMs,
+                    trimDurationMs = item.trimDurationMs,
                     cropLeft = item.crop?.left,
                     cropTop = item.crop?.top,
                     cropRight = item.crop?.right,
@@ -984,6 +987,7 @@ class StickerPackRepository(private val appContext: Context) {
                         type,
                         bias,
                         trimStartMs = sticker.trimStartMs,
+                        trimDurationMs = sticker.trimDurationMs,
                         crop = sticker.mediaCrop(),
                     )
                 ) {
@@ -997,6 +1001,7 @@ class StickerPackRepository(private val appContext: Context) {
                                 output,
                                 result.isAnimated,
                                 sticker.trimStartMs,
+                                sticker.trimDurationMs,
                                 sticker.mediaCrop(),
                             ),
                         )
@@ -1065,9 +1070,10 @@ class StickerPackRepository(private val appContext: Context) {
                             val convertResult = StickerConversionPipeline.convertForTelegram(
                                 file,
                                 telegramOutput,
-                                sticker.isVideo,
-                                sticker.trimStartMs,
-                                sticker.mediaCrop(),
+                                isVideo = sticker.isVideo,
+                                trimStartMs = sticker.trimStartMs,
+                                trimDurationMs = sticker.trimDurationMs,
+                                crop = sticker.mediaCrop(),
                             )
                         ) {
                             is StickerConvertResult.Failed -> {
@@ -1139,8 +1145,9 @@ class StickerPackRepository(private val appContext: Context) {
                         firstConvertedFile,
                         firstConvertedType,
                         trayFile,
-                        firstConvertedSticker?.trimStartMs ?: 0L,
-                        firstConvertedSticker?.mediaCrop(),
+                        trimStartMs = firstConvertedSticker?.trimStartMs ?: 0L,
+                        trimDurationMs = firstConvertedSticker?.trimDurationMs ?: 0L,
+                        crop = firstConvertedSticker?.mediaCrop(),
                     ) is StickerConvertResult.Success
                 finalizePackReady(packId, packIsAnimated, trayFile.absolutePath.takeIf { trayReady }, telegramPushWarning, bias)
             }
@@ -1457,6 +1464,7 @@ class StickerPackRepository(private val appContext: Context) {
         val output: File,
         val isAnimated: Boolean,
         val trimStartMs: Long = 0L,
+        val trimDurationMs: Long = 0L,
         val crop: MediaCrop? = null,
     )
 
@@ -1491,6 +1499,7 @@ class StickerPackRepository(private val appContext: Context) {
                 forceAnimated = packIsAnimated,
                 bias = bias,
                 trimStartMs = sticker.trimStartMs,
+                trimDurationMs = sticker.trimDurationMs,
                 crop = sticker.crop,
             )
         }

@@ -201,6 +201,9 @@ data class PickedMediaItem(
      * sticker is allowed to be. Zero for images and for clips that already
      * fit. */
     val trimStartMs: Long = 0L,
+    /** Exact length of the selected clip. Zero preserves the legacy behavior:
+     * each destination uses its own maximum duration from [trimStartMs]. */
+    val trimDurationMs: Long = 0L,
     /** Null keeps the entire source and pads its shorter side. Non-null crops
      * before the normal sticker sizing step. */
     val crop: MediaCrop? = null,

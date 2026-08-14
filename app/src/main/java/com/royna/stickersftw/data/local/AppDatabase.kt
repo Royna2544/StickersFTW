@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 6, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 7, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -64,6 +64,60 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the exact selected video length and the revision anchors used
+         * by pack editing. Existing video rows retain the old destination
+         * maximum because zero is the duration's legacy sentinel. */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE stickers ADD COLUMN trimDurationMs INTEGER NOT NULL DEFAULT 0",
+                )
+                connection.execSQL("ALTER TABLE packs ADD COLUMN trayStickerRowId INTEGER")
+                connection.execSQL("ALTER TABLE packs ADD COLUMN whatsappSyncedDataVersion INTEGER")
+                connection.execSQL("ALTER TABLE packs ADD COLUMN telegramSyncedDataVersion INTEGER")
+                connection.execSQL(
+                    """
+                    UPDATE packs
+                    SET trayStickerRowId = (
+                        SELECT stickers.rowId
+                        FROM stickers
+                        WHERE stickers.packId = packs.id
+                          AND stickers.convertedWhatsappPath IS NOT NULL
+                        ORDER BY stickers.position, stickers.rowId
+                        LIMIT 1
+                    )
+                    WHERE packs.trayIconPath IS NOT NULL
+                    """.trimIndent(),
+                )
+                connection.execSQL(
+                    """
+                    UPDATE packs
+                    SET whatsappSyncedDataVersion = imageDataVersion
+                    WHERE whatsappAdded = 1
+                    """.trimIndent(),
+                )
+                connection.execSQL(
+                    """
+                    UPDATE packs
+                    SET telegramSyncedDataVersion = imageDataVersion
+                    WHERE origin = 'Created'
+                      AND telegramSetName IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1
+                          FROM stickers
+                          WHERE stickers.packId = packs.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM stickers
+                          WHERE stickers.packId = packs.id
+                            AND stickers.convertedTelegramPath IS NULL
+                      )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -71,7 +125,13 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stickers_ftw.db",
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7,
+                    )
                     // Still the fallback for the one earlier bump that never
                     // got a migration written; 2 -> 3 now takes the path above
                     // instead of dropping everything.

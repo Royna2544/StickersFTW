@@ -55,6 +55,9 @@ object VideoStickerConverter {
     suspend fun extractFrames(
         videoFile: File,
         targetPx: Int,
+        /** Exact window to decode after [startMs]. Callers cap a persisted
+         * selection to their destination before it reaches this low-level
+         * decoder. */
         maxDurationMs: Long = SizeBudget.MAX_TOTAL_DURATION_MS,
         /** Where in the clip the sticker starts. A sticker is at most
          * [SizeBudget.MAX_TOTAL_DURATION_MS] long, so anything longer than

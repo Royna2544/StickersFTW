@@ -39,6 +39,9 @@ data class StickerEntity(
     /** Where in the source clip this sticker starts, in milliseconds. Only
      * ever non-zero for a locally picked video the user trimmed. */
     val trimStartMs: Long = 0L,
+    /** Exact selected clip length in milliseconds. Zero is the legacy value
+     * and means to use the destination's maximum duration. */
+    val trimDurationMs: Long = 0L,
     /** Source-relative non-destructive crop. All four values are null when
      * the whole image/frame should be kept. */
     val cropLeft: Float? = null,

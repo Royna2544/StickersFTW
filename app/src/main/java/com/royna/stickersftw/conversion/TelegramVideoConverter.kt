@@ -28,13 +28,14 @@ object TelegramVideoConverter {
         targetPx: Int,
         maxBytes: Int,
         trimStartMs: Long = 0L,
+        trimDurationMs: Long = 0L,
         crop: MediaCrop? = null,
     ): ConversionOutcome =
         withContext(Dispatchers.Default) {
             val frames = VideoStickerConverter.extractFrames(
                 input,
                 targetPx,
-                SizeBudget.TELEGRAM_MAX_DURATION_MS,
+                effectiveTrimDurationMs(trimDurationMs, SizeBudget.TELEGRAM_MAX_DURATION_MS),
                 startMs = trimStartMs,
                 crop = crop,
             ) ?: return@withContext ConversionOutcome.Failed("Could not decode video frames.")

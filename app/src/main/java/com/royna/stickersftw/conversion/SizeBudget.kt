@@ -39,3 +39,8 @@ object SizeBudget {
     const val FALLBACK_EMOJI = "🙂" // 🙂 -- WhatsApp/Telegram both require >=1 emoji per sticker
     const val MAX_EMOJIS = 3
 }
+
+/** Resolves a persisted clip length for one destination. Zero (and invalid
+ * negative values) means legacy behavior: use that destination's maximum. */
+internal fun effectiveTrimDurationMs(trimDurationMs: Long, destinationMaxMs: Long): Long =
+    trimDurationMs.takeIf { it > 0L }?.coerceAtMost(destinationMaxMs) ?: destinationMaxMs

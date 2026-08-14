@@ -23,6 +23,7 @@ class PackOperationRequestInstrumentedTest {
                     PickedMediaKind.Video,
                     emoji = "🎬",
                     trimStartMs = 9_876L,
+                    trimDurationMs = 4_321L,
                     crop = MediaCrop(0.1f, 0.2f, 0.7f, 0.8f),
                 ),
             ),
@@ -31,5 +32,28 @@ class PackOperationRequestInstrumentedTest {
         val restored = PackOperationRequest.readFrom(request.writeTo(Intent()))
 
         assertEquals(request, restored)
+    }
+
+    @Test
+    fun addStickersFromOlderIntentUsesLegacyDuration() {
+        val request = PackOperationRequest.AddStickers(
+            packId = "pack-id",
+            packTitle = "Pack",
+            items = listOf(
+                PickedMediaItem(
+                    "file:///clip.mp4",
+                    PickedMediaKind.Video,
+                    trimStartMs = 1_000L,
+                    trimDurationMs = 2_000L,
+                ),
+            ),
+        )
+        val oldIntent = request.writeTo(Intent()).apply {
+            removeExtra("itemTrimDurations")
+        }
+
+        val restored = PackOperationRequest.readFrom(oldIntent) as PackOperationRequest.AddStickers
+
+        assertEquals(0L, restored.items.single().trimDurationMs)
     }
 }

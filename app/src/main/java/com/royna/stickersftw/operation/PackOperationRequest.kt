@@ -79,6 +79,7 @@ sealed class PackOperationRequest {
                 putExtra(KEY_ITEM_EMOJIS, items.map { it.emoji }.toTypedArray())
                 putExtra(KEY_ITEM_IS_VIDEO, items.map { it.kind == PickedMediaKind.Video }.toBooleanArray())
                 putExtra(KEY_ITEM_TRIM_STARTS, items.map { it.trimStartMs }.toLongArray())
+                putExtra(KEY_ITEM_TRIM_DURATIONS, items.map { it.trimDurationMs }.toLongArray())
                 putExtra(KEY_ITEM_HAS_CROP, items.map { it.crop != null }.toBooleanArray())
                 putExtra(KEY_ITEM_CROP_LEFTS, items.map { it.crop?.left ?: 0f }.toFloatArray())
                 putExtra(KEY_ITEM_CROP_TOPS, items.map { it.crop?.top ?: 0f }.toFloatArray())
@@ -101,6 +102,7 @@ sealed class PackOperationRequest {
         private const val KEY_ITEM_EMOJIS = "itemEmojis"
         private const val KEY_ITEM_IS_VIDEO = "itemIsVideo"
         private const val KEY_ITEM_TRIM_STARTS = "itemTrimStarts"
+        private const val KEY_ITEM_TRIM_DURATIONS = "itemTrimDurations"
         private const val KEY_ITEM_HAS_CROP = "itemHasCrop"
         private const val KEY_ITEM_CROP_LEFTS = "itemCropLefts"
         private const val KEY_ITEM_CROP_TOPS = "itemCropTops"
@@ -141,6 +143,7 @@ sealed class PackOperationRequest {
                     val emojis = intent.getStringArrayExtra(KEY_ITEM_EMOJIS).orEmpty()
                     val isVideo = intent.getBooleanArrayExtra(KEY_ITEM_IS_VIDEO) ?: BooleanArray(uris.size)
                     val trimStarts = intent.getLongArrayExtra(KEY_ITEM_TRIM_STARTS) ?: LongArray(uris.size)
+                    val trimDurations = intent.getLongArrayExtra(KEY_ITEM_TRIM_DURATIONS) ?: LongArray(uris.size)
                     val hasCrop = intent.getBooleanArrayExtra(KEY_ITEM_HAS_CROP) ?: BooleanArray(uris.size)
                     val cropLefts = intent.getFloatArrayExtra(KEY_ITEM_CROP_LEFTS) ?: FloatArray(uris.size)
                     val cropTops = intent.getFloatArrayExtra(KEY_ITEM_CROP_TOPS) ?: FloatArray(uris.size)
@@ -159,6 +162,7 @@ sealed class PackOperationRequest {
                                 },
                                 emoji = emojis.getOrElse(index) { "🙂" },
                                 trimStartMs = trimStarts.getOrElse(index) { 0L },
+                                trimDurationMs = trimDurations.getOrElse(index) { 0L },
                                 crop = if (hasCrop.getOrElse(index) { false }) {
                                     MediaCrop(
                                         left = cropLefts.getOrElse(index) { 0f },
