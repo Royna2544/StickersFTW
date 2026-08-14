@@ -505,12 +505,13 @@ fun StickersFtwApp(
             ),
         ) {
             TrimVideoScreen(
+                mediaUri = request.mediaUri,
                 durationMs = request.durationMs,
                 startMs = request.startMs,
-                previewFrame = request.preview,
+                selectedDurationMs = request.selectedDurationMs,
                 position = request.position,
                 total = request.total,
-                onStartChanged = viewModel::setTrimStart,
+                onRangeChanged = viewModel::setTrimRange,
                 onConfirm = viewModel::confirmTrim,
                 onBack = viewModel::cancelTrim,
             )

@@ -1,7 +1,6 @@
 package com.royna.stickersftw.ui.screens
 
-import android.graphics.Bitmap
-import androidx.compose.foundation.Image
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,57 +21,105 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.compose.PlayerSurface
 import com.royna.stickersftw.R
-import com.royna.stickersftw.conversion.SizeBudget
+import com.royna.stickersftw.ui.VideoRange
+import com.royna.stickersftw.ui.adjustVideoRange
 import com.royna.stickersftw.ui.theme.appButtonColors
+import java.util.Locale
 import kotlinx.coroutines.delay
 
-/** Chooses which stretch of a long clip becomes the sticker.
- *
- * A sticker is capped at [SizeBudget.MAX_TOTAL_DURATION_MS], and the frames
- * worth keeping are almost never the opening ones -- a clip that runs a minute
- * used to be silently truncated to its first few seconds. The window length is
- * fixed, so there is exactly one thing to choose: where it starts.
- */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Chooses the exact source range used to build a video sticker. */
+@OptIn(UnstableApi::class)
+@kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrimVideoScreen(
+    mediaUri: String,
     durationMs: Long,
     startMs: Long,
-    previewFrame: Bitmap?,
+    selectedDurationMs: Long,
     position: Int = 1,
     total: Int = 1,
-    onStartChanged: (Long) -> Unit,
-    onConfirm: (Long) -> Unit,
+    onRangeChanged: (startMs: Long, durationMs: Long) -> Unit,
+    onConfirm: (startMs: Long, durationMs: Long) -> Unit,
     onBack: () -> Unit,
 ) {
-    val windowMs = SizeBudget.MAX_TOTAL_DURATION_MS
-    val maxStart = (durationMs - windowMs).coerceAtLeast(0L)
-    // Scrubbing fires a decode per position, so the preview follows the slider
-    // only once it settles. Without this a drag queues a decode per pixel.
-    // position is the identity of the clip in this batch. A plain remember
-    // carries the previous clip's chosen position into the next trim screen.
-    var scrubbing by remember(position) { mutableStateOf(startMs.toFloat()) }
-    LaunchedEffect(scrubbing, position) {
+    val context = LocalContext.current
+    val player = remember(mediaUri) {
+        ExoPlayer.Builder(context).build().apply {
+            volume = 0f
+            repeatMode = Player.REPEAT_MODE_ONE
+            playWhenReady = true
+        }
+    }
+    DisposableEffect(player) {
+        onDispose(player::release)
+    }
+
+    var selectedStart by rememberSaveable(mediaUri, position) { mutableLongStateOf(startMs) }
+    var selectedEnd by rememberSaveable(mediaUri, position) {
+        mutableLongStateOf(startMs + selectedDurationMs)
+    }
+    var playheadMs by remember(mediaUri) { mutableLongStateOf(selectedStart) }
+    var playbackState by remember(player) { mutableIntStateOf(player.playbackState) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+
+    val selection = VideoRange(selectedStart, selectedEnd - selectedStart)
+    // Rebuilding a clipped MediaItem for every pixel of a drag makes the
+    // decoder thrash. Let the handles settle briefly, then loop the exact
+    // chosen section. Confirm still receives the undebounced values below.
+    LaunchedEffect(player, mediaUri, selection) {
         delay(120)
-        onStartChanged(scrubbing.toLong())
+        onRangeChanged(selection.startMs, selection.durationMs)
+        val item = MediaItem.Builder()
+            .setUri(mediaUri)
+            .setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(selection.startMs)
+                    .setEndPositionMs(selection.endMs)
+                    .build(),
+            )
+            .build()
+        player.setMediaItem(item)
+        player.prepare()
+        player.play()
+        while (true) {
+            playheadMs = selection.startMs +
+                player.currentPosition.coerceIn(0L, selection.durationMs)
+            delay(100)
+        }
     }
 
     Scaffold(
@@ -106,11 +153,7 @@ fun TrimVideoScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                text = stringResource(
-                    R.string.trim_body,
-                    formatSeconds(windowMs),
-                    formatSeconds(durationMs),
-                ),
+                text = stringResource(R.string.trim_body, formatTime(durationMs)),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -125,22 +168,43 @@ fun TrimVideoScreen(
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
-                if (previewFrame != null) {
-                    Image(
-                        bitmap = previewFrame.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
+                PlayerSurface(
+                    player = player,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_BUFFERING) {
                     CircularProgressIndicator()
                 }
+                Text(
+                    text = stringResource(R.string.trim_preview_time, formatTime(playheadMs)),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(10.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f),
+                            shape = RoundedCornerShape(8.dp),
+                        )
+                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                    style = MaterialTheme.typography.labelMedium,
+                )
             }
 
             Spacer(Modifier.height(18.dp))
-            Slider(
-                value = scrubbing,
-                onValueChange = { scrubbing = it },
-                valueRange = 0f..maxStart.toFloat().coerceAtLeast(1f),
+            RangeSlider(
+                value = selectedStart.toFloat()..selectedEnd.toFloat(),
+                onValueChange = { requested ->
+                    val adjusted = adjustVideoRange(
+                        current = selection,
+                        requestedStartMs = requested.start.toLong(),
+                        requestedEndMs = requested.endInclusive.toLong(),
+                        sourceDurationMs = durationMs,
+                    )
+                    selectedStart = adjusted.startMs
+                    selectedEnd = adjusted.endMs
+                },
+                valueRange = 0f..durationMs.toFloat().coerceAtLeast(1f),
+                enabled = durationMs > 500L,
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(
@@ -148,18 +212,26 @@ fun TrimVideoScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = formatSeconds(scrubbing.toLong()),
+                    text = formatTime(selectedStart),
                     style = MaterialTheme.typography.labelLarge,
                 )
                 Text(
-                    text = formatSeconds((scrubbing.toLong() + windowMs).coerceAtMost(durationMs)),
+                    text = formatTime(selectedEnd),
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
+            Text(
+                text = stringResource(
+                    R.string.trim_selected_duration,
+                    formatTime(selectedEnd - selectedStart),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Spacer(Modifier.height(22.dp))
             Button(
-                onClick = { onConfirm(scrubbing.toLong()) },
+                onClick = { onConfirm(selectedStart, selectedEnd - selectedStart) },
                 colors = appButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) {
@@ -169,7 +241,13 @@ fun TrimVideoScreen(
     }
 }
 
-private fun formatSeconds(millis: Long): String {
-    val totalSeconds = millis / 1000
-    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
+private fun formatTime(millis: Long): String {
+    val totalTenths = millis.coerceAtLeast(0L) / 100L
+    val minutes = totalTenths / 600L
+    val seconds = (totalTenths % 600L) / 10f
+    return if (minutes == 0L) {
+        String.format(Locale.getDefault(), "%.1fs", seconds)
+    } else {
+        String.format(Locale.getDefault(), "%d:%04.1f", minutes, seconds)
+    }
 }

@@ -582,18 +582,18 @@ class AppViewModel(
     val trimRequest: StateFlow<TrimRequest?> = trimCoordinator.request
     val cropRequest: StateFlow<CropRequest?> = trimCoordinator.cropRequest
 
-    /** Materialises picked media, trims long clips, then offers a
+    /** Materialises picked media, selects a range for every video, then offers a
      * non-destructive crop before handing the edited items to [onReady]. */
     fun prepareMedia(items: List<PickedMediaItem>, onReady: (List<PickedMediaItem>) -> Unit) {
         viewModelScope.launch { trimCoordinator.begin(items, onReady) }
     }
 
-    fun setTrimStart(startMs: Long) {
-        viewModelScope.launch { trimCoordinator.setStart(startMs) }
+    fun setTrimRange(startMs: Long, durationMs: Long) {
+        trimCoordinator.setRange(startMs, durationMs)
     }
 
-    fun confirmTrim(startMs: Long) {
-        viewModelScope.launch { trimCoordinator.confirm(startMs) }
+    fun confirmTrim(startMs: Long, durationMs: Long) {
+        viewModelScope.launch { trimCoordinator.confirm(startMs, durationMs) }
     }
 
     fun cancelTrim() = trimCoordinator.cancel()

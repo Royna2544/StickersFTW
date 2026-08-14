@@ -296,9 +296,11 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
         <item quantity="one">%1$d sticker was saved as a still image so the pack is all one kind, which is all WhatsApp accepts.</item>
         <item quantity="other">%1$d stickers were saved as still images so the pack is all one kind, which is all WhatsApp accepts.</item>
     </plurals>
-    <string name="trim_title">Choose the moment</string>
-    <string name="trim_title_of">Choose the moment (%1$d of %2$d)</string>
-    <string name="trim_body">A sticker can be %1$s long and this clip runs %2$s, so pick where it should start.</string>
+    <string name="trim_title">Choose a range</string>
+    <string name="trim_title_of">Choose a range (%1$d of %2$d)</string>
+    <string name="trim_body">Choose up to 10 seconds from this %1$s clip. The selected part loops in the preview.</string>
+    <string name="trim_preview_time">Preview %1$s</string>
+    <string name="trim_selected_duration">%1$s selected</string>
     <string name="trim_confirm">Use this part</string>
     <string name="crop_title">Crop sticker</string>
     <string name="crop_title_of">Crop sticker (%1$d of %2$d)</string>
