@@ -152,6 +152,23 @@ class MediaTrimCoordinator(private val context: Context) {
         clear()
     }
 
+    /** Releases materialised picker/share files when a later confirmation
+     * (for example, the remix-name dialog) is canceled. Existing pack sources
+     * are outside this cache subtree and are deliberately left untouched. */
+    fun discardResolved(items: List<PickedMediaItem>) {
+        val root = runCatching { File(context.cacheDir, DIRECTORY).canonicalFile }.getOrNull()
+            ?: return
+        val prefix = root.path + File.separator
+        items.forEach { item ->
+            val uri = Uri.parse(item.uri)
+            if (uri.scheme != "file") return@forEach
+            val file = uri.path?.let(::File)?.let { candidate ->
+                runCatching { candidate.canonicalFile }.getOrNull()
+            } ?: return@forEach
+            if (file.path.startsWith(prefix) && file.isFile) file.delete()
+        }
+    }
+
     private fun clear(deletePendingFiles: Boolean = true) {
         requestToken++
         if (deletePendingFiles) materialisedFiles.forEach(File::delete)

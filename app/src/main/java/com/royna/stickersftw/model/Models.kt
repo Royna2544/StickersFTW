@@ -141,6 +141,9 @@ data class StickerPack(
      * Null for static packs and for anything converted before the setting
      * existed. */
     val conversionBias: ConversionBias? = null,
+    /** Imported or otherwise upstream-linked packs are preserved by cloning
+     * them to a local Created pack before the first editor mutation. */
+    val requiresLocalRemix: Boolean = false,
 )
 
 /** One stable, editable entry in a pack's full sticker grid. File paths stay

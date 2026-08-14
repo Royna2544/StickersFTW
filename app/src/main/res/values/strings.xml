@@ -243,6 +243,15 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="sticker_editor_progress">%1$d%%</string>
     <string name="action_undo">Undo</string>
 
+    <!-- Imported/update-linked pack remix dialog -->
+    <string name="remix_pack_title">Create an editable remix</string>
+    <string name="remix_pack_message">The linked pack stays unchanged. This edit will be applied to a new local copy.</string>
+    <string name="remix_pack_name_label">Remix name</string>
+    <string name="remix_pack_name_required">Enter a name.</string>
+    <string name="remix_pack_confirm">Create remix</string>
+    <string name="remix_pack_creating">Creating the independent copy…</string>
+    <string name="remix_pack_failed">Could not create the editable remix.</string>
+
     <!-- Custom sticker picker screen -->
     <string name="custom_picker_title">Pick stickers</string>
     <string name="action_deselect_all">Deselect all</string>

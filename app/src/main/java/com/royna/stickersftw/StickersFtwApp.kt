@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -37,13 +38,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.royna.stickersftw.data.StickerPackRepository
+import com.royna.stickersftw.data.ForkPackResult
 import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
+import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.AppViewModel
 import com.royna.stickersftw.ui.ImportPreviewUiState
 import com.royna.stickersftw.ui.components.DuplicatePackOverwriteDialog
 import com.royna.stickersftw.ui.components.ExpandableActionFab
 import com.royna.stickersftw.ui.components.MixedPackChoiceDialog
+import com.royna.stickersftw.ui.components.RemixPackDialog
 import com.royna.stickersftw.ui.screens.ConversionScreen
 import com.royna.stickersftw.ui.screens.ConvertScreen
 import com.royna.stickersftw.ui.screens.CropMediaScreen
@@ -58,6 +62,10 @@ import com.royna.stickersftw.ui.screens.ShareTargetScreen
 import com.royna.stickersftw.ui.screens.TrimVideoScreen
 import com.royna.stickersftw.ui.screens.SettingsScreen
 import com.royna.stickersftw.ui.screens.StickerGridScreen
+import com.royna.stickersftw.ui.screens.StickerEditorPendingUndo
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 private object Routes {
     const val Convert = "convert"
@@ -82,6 +90,22 @@ private data class MainDestination(
     val route: String,
     @StringRes val labelRes: Int,
     val icon: ImageVector,
+)
+
+private data class RemixPromptRequest(
+    val packTitle: String,
+    val result: CompletableDeferred<String?>,
+)
+
+private data class EditablePackTarget(
+    val packId: String,
+    val rowIdMap: Map<Long, Long>,
+    val wasForked: Boolean,
+)
+
+private data class MutationReplay(
+    val target: EditablePackTarget,
+    val succeeded: Boolean,
 )
 
 private val mainDestinations = listOf(
@@ -153,11 +177,119 @@ fun StickersFtwApp(
     val showBottomBar = mainDestinations.any { it.route == currentRoute }
     val showActionFab = currentRoute == Routes.Convert || currentRoute == Routes.Packs
     var fabExpanded by rememberSaveable { mutableStateOf(false) }
+    val appScope = rememberCoroutineScope()
+    var remixPrompt by remember { mutableStateOf<RemixPromptRequest?>(null) }
+    var remixInFlight by remember { mutableStateOf(false) }
+    var pendingRemixUndoPackId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingRemixUndoKind by rememberSaveable { mutableStateOf<String?>(null) }
+    val remixFailedMessage = stringResource(R.string.remix_pack_failed)
+
+    suspend fun requestRemixName(packTitle: String): String? {
+        if (remixPrompt != null) return null
+        val result = CompletableDeferred<String?>()
+        remixPrompt = RemixPromptRequest(packTitle, result)
+        return try {
+            result.await()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            if (remixPrompt?.result === result) {
+                remixPrompt = null
+                remixInFlight = false
+            }
+            throw cancelled
+        }
+    }
+
+    fun finishRemixFlow() {
+        remixPrompt = null
+        remixInFlight = false
+    }
+
+    suspend fun editableTarget(
+        pack: StickerPack,
+        sourceRowIds: Collection<Long> = emptyList(),
+    ): EditablePackTarget? {
+        if (!pack.requiresLocalRemix) {
+            return EditablePackTarget(
+                packId = pack.id,
+                rowIdMap = sourceRowIds.associateWith { it },
+                wasForked = false,
+            )
+        }
+        val title = requestRemixName(pack.title) ?: return null
+        val fork: ForkPackResult = viewModel.forkPackForLocalEdits(pack.id, title)
+            ?: run {
+                android.widget.Toast.makeText(
+                    context,
+                    remixFailedMessage,
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                finishRemixFlow()
+                return null
+            }
+        return EditablePackTarget(
+            packId = fork.newPackId,
+            rowIdMap = fork.rowIdMap,
+            wasForked = true,
+        )
+    }
+
+    suspend fun replayPackMutation(
+        pack: StickerPack,
+        sourceRowIds: Collection<Long> = emptyList(),
+        mutation: suspend (EditablePackTarget) -> Boolean,
+    ): MutationReplay? {
+        var target: EditablePackTarget? = null
+        var settled = false
+        try {
+            target = editableTarget(pack, sourceRowIds) ?: return null
+            val succeeded = mutation(target)
+            if (target.wasForked) {
+                if (!succeeded) {
+                    viewModel.discardUnmodifiedLocalRemix(target.packId)
+                }
+                finishRemixFlow()
+            }
+            settled = true
+            return MutationReplay(target, succeeded)
+        } finally {
+            if (!settled) {
+                target?.takeIf(EditablePackTarget::wasForked)?.let {
+                    viewModel.discardUnmodifiedLocalRemix(it.packId)
+                }
+                if (target?.wasForked == true || remixInFlight) finishRemixFlow()
+            }
+        }
+    }
+
+    fun showRemixDestination(packId: String, openGrid: Boolean) {
+        navController.navigate(Routes.detail(packId)) {
+            popUpTo(Routes.Detail) { inclusive = true }
+            launchSingleTop = true
+        }
+        if (openGrid) navController.navigate(Routes.grid(packId))
+    }
 
     val whatsappAvailable = installedApps.whatsappInstalled || installedApps.whatsappBusinessInstalled
     val useBusinessWhatsapp = preferBusinessWhatsapp(installedApps)
 
     LaunchedEffect(currentRoute) { fabExpanded = false }
+
+    // Delete/reorder on a freshly forked pack resolves its Snackbar on the
+    // remix destination. Saveable state makes this navigation resume after a
+    // configuration change instead of leaving a target-only pending edit
+    // hidden behind the source pack's grid.
+    LaunchedEffect(pendingRemixUndoPackId, pendingRemixUndoKind) {
+        val targetPackId = pendingRemixUndoPackId ?: return@LaunchedEffect
+        if (pendingRemixUndoKind == null) return@LaunchedEffect
+        val visibleEntry = navController.currentBackStackEntry
+        val visiblePackId = visibleEntry?.arguments?.getString("packId")
+        val isTargetGrid = visibleEntry?.destination?.route == Routes.Grid &&
+            visiblePackId == targetPackId
+        if (!isTargetGrid) {
+            yield()
+            showRemixDestination(targetPackId, openGrid = true)
+        }
+    }
 
     // Reopens straight onto the pack's Conversion screen when the user taps
     // a "Run in background" notification -- that screen already renders
@@ -334,11 +466,26 @@ fun StickersFtwApp(
                     sharedCount = sharedMedia.size,
                     onCreateNew = { navController.navigate(Routes.Create) },
                     onAddToPack = { id ->
+                        val selectedPack = packs.firstOrNull { it.id == id }
+                            ?: return@ShareTargetScreen
                         viewModel.prepareMedia(sharedMedia) { prepared ->
-                            if (viewModel.addStickersToPack(id, prepared)) {
-                                onSharedMediaConsumed()
-                                navController.navigate(Routes.conversion(id)) {
-                                    popUpTo(Routes.ShareTarget) { inclusive = true }
+                            appScope.launch {
+                                var handedToService = false
+                                try {
+                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
+                                    val replay = replayPackMutation(selectedPack) { target ->
+                                        viewModel.addStickersToPack(target.packId, prepared).also {
+                                            handedToService = it
+                                        }
+                                    }
+                                    if (replay?.succeeded == true) {
+                                        onSharedMediaConsumed()
+                                        navController.navigate(Routes.conversion(replay.target.packId)) {
+                                            popUpTo(Routes.ShareTarget) { inclusive = true }
+                                        }
+                                    }
+                                } finally {
+                                    if (!handedToService) viewModel.discardPreparedMedia(prepared)
                                 }
                             }
                         }
@@ -410,9 +557,26 @@ fun StickersFtwApp(
                     },
                     onViewAllStickers = { navController.navigate(Routes.grid(it)) },
                     onAddStickers = { id, items ->
+                        val selectedPack = pack ?: return@PackDetailScreen
                         viewModel.prepareMedia(items) { prepared ->
-                            if (viewModel.addStickersToPack(id, prepared)) {
-                                navController.navigate(Routes.conversion(id))
+                            appScope.launch {
+                                var handedToService = false
+                                try {
+                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
+                                    val replay = replayPackMutation(selectedPack) { target ->
+                                        viewModel.addStickersToPack(target.packId, prepared).also {
+                                            handedToService = it
+                                        }
+                                    }
+                                    if (replay?.succeeded == true) {
+                                        if (replay.target.wasForked) {
+                                            showRemixDestination(replay.target.packId, openGrid = false)
+                                        }
+                                        navController.navigate(Routes.conversion(replay.target.packId))
+                                    }
+                                } finally {
+                                    if (!handedToService) viewModel.discardPreparedMedia(prepared)
+                                }
                             }
                         }
                     },
@@ -445,20 +609,157 @@ fun StickersFtwApp(
                 val pack = packs.firstOrNull { it.id == id }
                 val stickers by remember(id) { viewModel.observePackStickers(id) }
                     .collectAsStateWithLifecycle(initialValue = emptyList())
+
+                fun mappedRows(
+                    target: EditablePackTarget,
+                    sourceRowIds: List<Long>,
+                ): List<Long>? = sourceRowIds.map { target.rowIdMap[it] ?: return null }
+
                 StickerGridScreen(
                     packTitle = pack?.title.orEmpty(),
                     stickers = stickers,
                     onBack = { navController.popBackStack() },
-                    onEdit = { rowId -> viewModel.editSticker(id, rowId) },
-                    onReplace = { rowId, item -> viewModel.replaceSticker(id, rowId, item) },
-                    onUpdateEmoji = { rowId, emojis ->
-                        viewModel.updateStickerEmojis(id, rowId, emojis)
+                    onEdit = { rowId ->
+                        viewModel.prepareStickerEdit(id, rowId) { prepared ->
+                            appScope.launch {
+                                var handedToService = false
+                                try {
+                                    val sourcePack = pack ?: return@launch
+                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
+                                    val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
+                                        val targetRowId = target.rowIdMap[rowId] ?: return@replayPackMutation false
+                                        viewModel.startStickerEdit(
+                                            target.packId,
+                                            targetRowId,
+                                            prepared,
+                                        ).also { handedToService = it }
+                                    }
+                                    if (replay?.succeeded == true && replay.target.wasForked) {
+                                        showRemixDestination(replay.target.packId, openGrid = true)
+                                    }
+                                } finally {
+                                    if (!handedToService) {
+                                        viewModel.discardPreparedMedia(listOf(prepared))
+                                    }
+                                }
+                            }
+                        }
                     },
-                    onSetTray = { rowId -> viewModel.setTraySticker(id, rowId) },
-                    onDelete = { rowId -> viewModel.deleteSticker(id, rowId) },
-                    onReorder = { rowIds -> viewModel.reorderStickers(id, rowIds) },
+                    onReplace = { rowId, item ->
+                        viewModel.prepareMedia(listOf(item)) { prepared ->
+                            val replacement = prepared.singleOrNull() ?: run {
+                                viewModel.discardPreparedMedia(prepared)
+                                return@prepareMedia
+                            }
+                            appScope.launch {
+                                var handedToService = false
+                                try {
+                                    val sourcePack = pack ?: return@launch
+                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
+                                    val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
+                                        val targetRowId = target.rowIdMap[rowId] ?: return@replayPackMutation false
+                                        viewModel.startStickerEdit(
+                                            target.packId,
+                                            targetRowId,
+                                            replacement,
+                                        ).also { handedToService = it }
+                                    }
+                                    if (replay?.succeeded == true && replay.target.wasForked) {
+                                        showRemixDestination(replay.target.packId, openGrid = true)
+                                    }
+                                } finally {
+                                    if (!handedToService) viewModel.discardPreparedMedia(prepared)
+                                }
+                            }
+                        }
+                    },
+                    onUpdateEmoji = { rowId, emojis ->
+                        val sourcePack = pack
+                        if (sourcePack == null) {
+                            null
+                        } else {
+                            val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
+                                target.rowIdMap[rowId]?.let {
+                                    viewModel.updateStickerEmojis(target.packId, it, emojis)
+                                } ?: false
+                            }
+                            if (replay?.succeeded == true && replay.target.wasForked) {
+                                showRemixDestination(replay.target.packId, openGrid = true)
+                            }
+                            replay?.succeeded
+                        }
+                    },
+                    onSetTray = { rowId ->
+                        val sourcePack = pack
+                        if (sourcePack == null) {
+                            null
+                        } else {
+                            val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
+                                target.rowIdMap[rowId]?.let {
+                                    viewModel.setTraySticker(target.packId, it)
+                                } ?: false
+                            }
+                            if (replay?.succeeded == true && replay.target.wasForked) {
+                                showRemixDestination(replay.target.packId, openGrid = true)
+                            }
+                            replay?.succeeded
+                        }
+                    },
+                    onDelete = { rowId ->
+                        val sourcePack = pack
+                        if (sourcePack == null) {
+                            null
+                        } else {
+                            val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
+                                target.rowIdMap[rowId]?.let {
+                                    viewModel.deleteSticker(target.packId, it)
+                                } ?: false
+                            }
+                            if (replay?.succeeded == true && replay.target.wasForked) {
+                                pendingRemixUndoPackId = replay.target.packId
+                                pendingRemixUndoKind = StickerEditorPendingUndo.Delete.name
+                                null
+                            } else {
+                                replay?.succeeded
+                            }
+                        }
+                    },
+                    onReorder = { rowIds ->
+                        val sourcePack = pack
+                        if (sourcePack == null) {
+                            null
+                        } else {
+                            val replay = replayPackMutation(sourcePack, rowIds) { target ->
+                                mappedRows(target, rowIds)?.let {
+                                    viewModel.reorderStickers(target.packId, it)
+                                } ?: false
+                            }
+                            if (replay?.succeeded == true && replay.target.wasForked) {
+                                pendingRemixUndoPackId = replay.target.packId
+                                pendingRemixUndoKind = StickerEditorPendingUndo.Reorder.name
+                                null
+                            } else {
+                                replay?.succeeded
+                            }
+                        }
+                    },
                     onUndo = { viewModel.undoLastPackEdit(id) },
                     onFinalizeUndo = { viewModel.finalizeLastPackEdit(id) },
+                    onUndoResolved = {
+                        if (pendingRemixUndoPackId == id) {
+                            pendingRemixUndoPackId = null
+                            pendingRemixUndoKind = null
+                        }
+                    },
+                    pendingUndo = pendingRemixUndoKind
+                        ?.let { name -> StickerEditorPendingUndo.entries.firstOrNull { it.name == name } }
+                        ?.takeIf { pendingRemixUndoPackId == id },
+                    onPendingUndoConsumed = {
+                        if (pendingRemixUndoPackId == id) {
+                            pendingRemixUndoPackId = null
+                            pendingRemixUndoKind = null
+                        }
+                    },
                     isBusy = conversion.isRunning && conversion.packId == id,
                     busyStage = conversion.stage,
                     busyProgress = conversion.progress,
@@ -565,6 +866,23 @@ fun StickersFtwApp(
             packTitle = prompt.packTitle,
             onOverwrite = prompt.onConfirm,
             onCancel = prompt.onReject,
+        )
+    }
+
+    remixPrompt?.let { prompt ->
+        RemixPackDialog(
+            packTitle = prompt.packTitle,
+            isCreating = remixInFlight,
+            onConfirm = { title ->
+                if (!prompt.result.isCompleted) {
+                    remixInFlight = true
+                    prompt.result.complete(title)
+                }
+            },
+            onCancel = {
+                if (!prompt.result.isCompleted) prompt.result.complete(null)
+                finishRemixFlow()
+            },
         )
     }
 }

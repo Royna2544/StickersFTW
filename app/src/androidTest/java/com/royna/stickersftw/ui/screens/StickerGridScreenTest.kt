@@ -1,6 +1,7 @@
 package com.royna.stickersftw.ui.screens
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -78,6 +79,33 @@ class StickerGridScreenTest {
         composeRule.waitUntil(timeoutMillis = 5_000) {
             committed == listOf(2L, 1L, 3L, 4L)
         }
+    }
+
+    @Test
+    fun replayedRemixDeleteOffersUndoOnTheDestinationGrid() {
+        var undone = false
+        var consumed = false
+        val destinationStickers = mutableStateOf(emptyList<StickerGridItem>())
+        composeRule.setContent {
+            MaterialTheme {
+                StickerGridScreen(
+                    packTitle = "Remix",
+                    stickers = destinationStickers.value,
+                    onBack = {},
+                    pendingUndo = StickerEditorPendingUndo.Delete,
+                    onUndo = { undone = true },
+                    onPendingUndoConsumed = { consumed = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText(context.getString(R.string.action_undo)).assertIsDisplayed()
+        composeRule.runOnIdle { destinationStickers.value = stickers(3) }
+        composeRule.onNodeWithContentDescription(
+            "${context.getString(R.string.sticker_editor_sticker)} 1",
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(context.getString(R.string.action_undo)).performClick()
+        composeRule.waitUntil(timeoutMillis = 5_000) { undone && consumed }
     }
 
     private fun stickers(count: Int): List<StickerGridItem> =

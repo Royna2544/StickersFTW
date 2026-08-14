@@ -89,6 +89,13 @@ internal fun validatedStickerOrder(currentIds: List<Long>, requestedIds: List<Lo
             it.toSet() == currentIds.toSet()
     }
 
+/** Identity of an independent local copy and the stable-row translation used
+ * to replay the mutation that originally requested the copy. */
+data class ForkPackResult(
+    val newPackId: String,
+    val rowIdMap: Map<Long, Long>,
+)
+
 /** Unifies Room persistence, the network client, the conversion pipeline,
  * and WhatsApp registration behind one API the ViewModel drives. Constructed
  * manually (no DI framework), mirroring the existing SettingsRepository. */
@@ -130,6 +137,157 @@ class StickerPackRepository(private val appContext: Context) {
                     }
                 }
                 .orEmpty()
+        }
+
+    /** Creates an independent Created copy before an upstream-linked pack is
+     * edited. Referenced pack assets are staged under a fresh, unreachable
+     * directory first. Room exposes the new pack and all of its fresh sticker
+     * rows together only after the source snapshot is revalidated.
+     *
+     * A null result means the title/source was invalid, a required owned asset
+     * could not be copied, or the source changed while it was being copied.
+     * In every failure case the source is untouched and the fresh directory is
+     * removed. */
+    suspend fun forkPackForLocalEdits(packId: String, title: String): ForkPackResult? =
+        withContext(Dispatchers.IO) {
+            val forkTitle = sanitizeTitle(title).takeIf { it.isNotBlank() }
+                ?: return@withContext null
+            val source = database.withTransaction {
+                val pack = packDao.getPack(packId) ?: return@withTransaction null
+                val stickers = stickerDao.getStickersOnce(packId).sortedBy { it.position }
+                PackForkSource(pack, stickers)
+            } ?: return@withContext null
+            if (!source.pack.canForkForLocalEdits()) return@withContext null
+
+            val packsRoot = File(appContext.filesDir, "packs").apply { mkdirs() }
+            val newPackId = UUID.randomUUID().toString()
+            val newPackDir = File(packsRoot, newPackId)
+            if (!newPackDir.mkdirs()) return@withContext null
+
+            var committed = false
+            try {
+                val token = UUID.randomUUID().toString().replace("-", "")
+                val stagedStickers = source.stickers.mapIndexed { index, sticker ->
+                    val original = copyForkAsset(
+                        packsRoot = packsRoot,
+                        sourcePath = sticker.originalFilePath,
+                        destination = File(newPackDir, "original/$index-$token.bin"),
+                    )
+                    val whatsapp = copyForkAsset(
+                        packsRoot = packsRoot,
+                        sourcePath = sticker.convertedWhatsappPath,
+                        destination = File(newPackDir, "converted/$index-$token.webp"),
+                    )
+                    StagedForkSticker(sticker, original, whatsapp)
+                }
+                val stagedTray = copyForkAsset(
+                    packsRoot = packsRoot,
+                    sourcePath = source.pack.trayIconPath,
+                    destination = File(newPackDir, "tray-$token.webp"),
+                )
+                val now = System.currentTimeMillis()
+
+                withContext(NonCancellable) {
+                    database.withTransaction {
+                        val currentPack = packDao.getPack(packId)
+                            ?: return@withTransaction null
+                        val currentStickers = stickerDao.getStickersOnce(packId)
+                            .sortedBy { it.position }
+                        if (currentPack != source.pack || currentStickers != source.stickers) {
+                            return@withTransaction null
+                        }
+
+                        val fork = source.pack.copy(
+                            id = newPackId,
+                            origin = PackOrigin.Created.name,
+                            telegramSetName = null,
+                            pushShortName = null,
+                            sourceUrl = null,
+                            title = forkTitle,
+                            publisher = "You",
+                            stickerCount = stagedStickers.count { it.whatsappPath != null },
+                            status = PackStatus.Ready.name,
+                            errorMessage = null,
+                            warningMessage = null,
+                            trayIconPath = stagedTray,
+                            isPinned = false,
+                            whatsappAdded = false,
+                            createdAtMillis = now,
+                            updatedAtMillis = now,
+                            sourceSignature = null,
+                            updateAvailable = false,
+                            updateCheckEnabled = false,
+                            importPartIndex = 0,
+                            imageDataVersion = 1,
+                            trayStickerRowId = null,
+                            whatsappSyncedDataVersion = null,
+                            telegramSyncedDataVersion = null,
+                        )
+                        packDao.upsert(fork)
+
+                        val rowIdMap = linkedMapOf<Long, Long>()
+                        stagedStickers.forEach { staged ->
+                            val newRowId = stickerDao.upsert(
+                                staged.source.copy(
+                                    rowId = 0,
+                                    packId = newPackId,
+                                    remoteId = null,
+                                    sourceLocalUri = staged.originalPath
+                                        ?.let { Uri.fromFile(File(it)).toString() },
+                                    originalFilePath = staged.originalPath,
+                                    convertedWhatsappPath = staged.whatsappPath,
+                                    // This column doubles as the per-row
+                                    // successful-push marker. Keeping it would
+                                    // make a future publish skip the copied row.
+                                    convertedTelegramPath = null,
+                                ),
+                            )
+                            rowIdMap[staged.source.rowId] = newRowId
+                        }
+
+                        val mappedTrayRowId = source.pack.trayStickerRowId
+                            ?.let(rowIdMap::get)
+                        if (mappedTrayRowId != null) {
+                            packDao.upsert(fork.copy(trayStickerRowId = mappedTrayRowId))
+                        }
+                        ForkPackResult(newPackId, rowIdMap.toMap())
+                    }.also { result ->
+                        if (result != null) committed = true
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } finally {
+                if (!committed) deleteForkDirectory(packsRoot, newPackDir)
+            }
+        }
+
+    /** Removes a just-created fork when its requested mutation could not even
+     * start. The revision/link checks make this a no-op once any editor action
+     * has changed the clone, so a late cancellation can never erase work. */
+    suspend fun discardUnmodifiedLocalRemix(packId: String): Boolean =
+        withContext(Dispatchers.IO + NonCancellable) {
+            val removed = database.withTransaction {
+                val pack = packDao.getPack(packId) ?: return@withTransaction false
+                val isFreshLocalRemix = pack.origin == PackOrigin.Created.name &&
+                    pack.sourceUrl == null &&
+                    pack.sourceSignature == null &&
+                    pack.telegramSetName == null &&
+                    pack.whatsappAdded.not() &&
+                    pack.whatsappSyncedDataVersion == null &&
+                    pack.telegramSyncedDataVersion == null &&
+                    pack.imageDataVersion == 1
+                if (!isFreshLocalRemix) return@withTransaction false
+                packDao.delete(packId)
+                true
+            }
+            if (removed) {
+                val packsRoot = File(appContext.filesDir, "packs")
+                deleteForkDirectory(packsRoot, File(packsRoot, packId))
+            }
+            removed
         }
 
     /** Loads the durable source and its current non-destructive recipe for
@@ -1881,6 +2039,9 @@ class StickerPackRepository(private val appContext: Context) {
             importPartIndex = pack.importPartIndex,
             conversionBias = pack.conversionBias
                 ?.let { stored -> ConversionBias.entries.firstOrNull { it.name == stored } },
+            requiresLocalRemix = pack.origin == PackOrigin.Imported.name ||
+                pack.sourceUrl != null ||
+                pack.sourceSignature != null,
         )
     }
 
@@ -1936,6 +2097,17 @@ class StickerPackRepository(private val appContext: Context) {
         val trimStartMs: Long = 0L,
         val trimDurationMs: Long = 0L,
         val crop: MediaCrop? = null,
+    )
+
+    private data class PackForkSource(
+        val pack: PackEntity,
+        val stickers: List<StickerEntity>,
+    )
+
+    private data class StagedForkSticker(
+        val source: StickerEntity,
+        val originalPath: String?,
+        val whatsappPath: String?,
     )
 
     private data class CommittedVisualEdit(
@@ -2011,6 +2183,39 @@ class StickerPackRepository(private val appContext: Context) {
         val right = cropRight ?: return null
         val bottom = cropBottom ?: return null
         return MediaCrop(left, top, right, bottom)
+    }
+
+    private fun PackEntity.canForkForLocalEdits(): Boolean =
+        status == PackStatus.Ready.name &&
+            (origin == PackOrigin.Imported.name || sourceUrl != null || sourceSignature != null)
+
+    /** Copies only a file the app already owns under its packs tree. A non-null
+     * DB path is a required reference: missing or external input fails the
+     * whole fork instead of creating a clone with silently broken content. */
+    private fun copyForkAsset(
+        packsRoot: File,
+        sourcePath: String?,
+        destination: File,
+    ): String? {
+        if (sourcePath == null) return null
+        val root = packsRoot.canonicalFile
+        val source = File(sourcePath).canonicalFile
+        val prefix = root.path + File.separator
+        check(source.path.startsWith(prefix) && source.isFile) {
+            "Pack asset is missing or outside app storage."
+        }
+        destination.parentFile?.mkdirs()
+        source.copyTo(destination, overwrite = false)
+        return destination.absolutePath
+    }
+
+    /** The candidate is a UUID child created by this operation. Resolve it
+     * again before recursive cleanup so a malformed/computed path can never
+     * widen deletion beyond the packs directory. */
+    private fun deleteForkDirectory(packsRoot: File, candidate: File) {
+        val root = runCatching { packsRoot.canonicalFile }.getOrNull() ?: return
+        val directory = runCatching { candidate.canonicalFile }.getOrNull() ?: return
+        if (directory.parentFile == root) directory.deleteRecursively()
     }
 
     /** Only files underneath this pack may be reclaimed. A picked content URI

@@ -88,11 +88,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.pow
 
 private const val MIN_CELL_SIZE_DP = 64f
 private const val MAX_CELL_SIZE_DP = 220f
 private const val MIN_PACK_SIZE = 3
+
+enum class StickerEditorPendingUndo {
+    Delete,
+    Reorder,
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,12 +108,15 @@ fun StickerGridScreen(
     onBack: () -> Unit,
     onEdit: (Long) -> Unit = {},
     onReplace: (Long, PickedMediaItem) -> Unit = { _, _ -> },
-    onUpdateEmoji: suspend (Long, String) -> Boolean = { _, _ -> false },
-    onSetTray: suspend (Long) -> Boolean = { false },
-    onDelete: suspend (Long) -> Boolean = { false },
-    onReorder: suspend (List<Long>) -> Boolean = { false },
+    onUpdateEmoji: suspend (Long, String) -> Boolean? = { _, _ -> false },
+    onSetTray: suspend (Long) -> Boolean? = { false },
+    onDelete: suspend (Long) -> Boolean? = { false },
+    onReorder: suspend (List<Long>) -> Boolean? = { false },
     onUndo: suspend () -> Unit = {},
     onFinalizeUndo: suspend () -> Unit = {},
+    onUndoResolved: suspend (leavingScreen: Boolean) -> Unit = {},
+    pendingUndo: StickerEditorPendingUndo? = null,
+    onPendingUndoConsumed: () -> Unit = {},
     isBusy: Boolean = false,
     busyStage: String = "",
     busyProgress: Float = 0f,
@@ -126,8 +135,10 @@ fun StickerGridScreen(
     var dragOriginal by remember { mutableStateOf<List<StickerGridItem>?>(null) }
     var undoPending by remember { mutableStateOf(false) }
     var mutationJob by remember { mutableStateOf<Job?>(null) }
+    val undoResolutionClaimed = remember { AtomicBoolean(false) }
     val latestUndoPending by rememberUpdatedState(undoPending)
     val latestFinalizeUndo by rememberUpdatedState(onFinalizeUndo)
+    val latestUndoResolved by rememberUpdatedState(onUndoResolved)
     val latestMutationJob by rememberUpdatedState(mutationJob)
 
     // Usually Back or the Snackbar resolves this snapshot. This fallback also
@@ -136,10 +147,11 @@ fun StickerGridScreen(
     // this composition just long enough to release retained delete files.
     DisposableEffect(Unit) {
         onDispose {
-            if (latestUndoPending) {
+            if (latestUndoPending && undoResolutionClaimed.compareAndSet(false, true)) {
                 CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
                     latestMutationJob?.join()
                     latestFinalizeUndo()
+                    latestUndoResolved(true)
                 }
             }
         }
@@ -150,8 +162,9 @@ fun StickerGridScreen(
         ordered.addAll(items)
     }
 
-    LaunchedEffect(stickers, draggingRowId, undoPending) {
-        if (draggingRowId == null && !undoPending) {
+    LaunchedEffect(stickers, draggingRowId, undoPending, pendingUndo) {
+        val needsExternalInitialPopulation = pendingUndo != null && ordered.isEmpty()
+        if (draggingRowId == null && (!undoPending || needsExternalInitialPopulation)) {
             replaceLocal(stickers.sortedBy(StickerGridItem::position))
         }
     }
@@ -167,6 +180,25 @@ fun StickerGridScreen(
     val moveLaterLabel = stringResource(R.string.sticker_editor_move_later)
     val stickerDescription = stringResource(R.string.sticker_editor_sticker)
 
+    LaunchedEffect(pendingUndo) {
+        val pending = pendingUndo ?: return@LaunchedEffect
+        undoResolutionClaimed.set(false)
+        undoPending = true
+        val result = snackbarHostState.showSnackbar(
+            message = when (pending) {
+                StickerEditorPendingUndo.Delete -> deleteMessage
+                StickerEditorPendingUndo.Reorder -> reorderMessage
+            },
+            actionLabel = undoLabel,
+            duration = SnackbarDuration.Long,
+        )
+        if (undoResolutionClaimed.compareAndSet(false, true)) {
+            if (result == SnackbarResult.ActionPerformed) onUndo() else onFinalizeUndo()
+        }
+        undoPending = false
+        onPendingUndoConsumed()
+    }
+
     suspend fun offerUndo(message: String, original: List<StickerGridItem>) {
         val result = snackbarHostState.showSnackbar(
             message = message,
@@ -176,6 +208,7 @@ fun StickerGridScreen(
         // Back navigation may already have finalized the pending snapshot and
         // dismissed this Snackbar. In that case there is nothing left to do.
         if (!undoPending) return
+        if (!undoResolutionClaimed.compareAndSet(false, true)) return
         if (result == SnackbarResult.ActionPerformed) {
             onUndo()
             replaceLocal(original)
@@ -183,6 +216,7 @@ fun StickerGridScreen(
             onFinalizeUndo()
         }
         undoPending = false
+        onUndoResolved(false)
     }
 
     fun leaveScreen() {
@@ -193,11 +227,13 @@ fun StickerGridScreen(
         }
         // Repository implementations retain deleted files/order snapshots
         // until this signal. Navigating away counts as declining Undo.
+        if (!undoResolutionClaimed.compareAndSet(false, true)) return
         undoPending = false
         snackbarHostState.currentSnackbarData?.dismiss()
         scope.launch {
             onFinalizeUndo()
             onBack()
+            onUndoResolved(true)
         }
     }
 
@@ -209,16 +245,26 @@ fun StickerGridScreen(
         val before = original.map(StickerGridItem::rowId)
         val after = ordered.map(StickerGridItem::rowId)
         if (before == after) return
+        undoResolutionClaimed.set(false)
         undoPending = true
         mutationJob = scope.launch {
-            if (onReorder(after)) {
-                mutationJob = null
-                offerUndo(reorderMessage, original)
-            } else {
-                replaceLocal(original)
-                undoPending = false
-                mutationJob = null
-                snackbarHostState.showSnackbar(failureMessage)
+            when (onReorder(after)) {
+                true -> {
+                    mutationJob = null
+                    offerUndo(reorderMessage, original)
+                }
+                false -> {
+                    replaceLocal(original)
+                    undoPending = false
+                    mutationJob = null
+                    snackbarHostState.showSnackbar(failureMessage)
+                }
+                null -> {
+                    replaceLocal(original)
+                    undoPending = false
+                    undoResolutionClaimed.set(true)
+                    mutationJob = null
+                }
             }
         }
     }
@@ -472,7 +518,7 @@ fun StickerGridScreen(
                 },
                 onSaveEmoji = { emoji ->
                     val success = onUpdateEmoji(selected.rowId, emoji)
-                    if (success) {
+                    if (success == true) {
                         val index = ordered.indexOfFirst { it.rowId == selected.rowId }
                         if (index >= 0) ordered[index] = ordered[index].copy(emoji = emoji)
                     }
@@ -480,7 +526,7 @@ fun StickerGridScreen(
                 },
                 onSetTray = {
                     val success = onSetTray(selected.rowId)
-                    if (success) {
+                    if (success == true) {
                         ordered.indices.forEach { index ->
                             ordered[index] = ordered[index].copy(
                                 isTray = ordered[index].rowId == selected.rowId,
@@ -493,16 +539,24 @@ fun StickerGridScreen(
                     val runningJob = currentCoroutineContext()[Job]
                     mutationJob = runningJob
                     val original = ordered.toList()
+                    undoResolutionClaimed.set(false)
                     undoPending = true
                     try {
                         val success = onDelete(selected.rowId)
-                        if (success) {
-                            ordered.removeAll { it.rowId == selected.rowId }
-                            selectedRowId = null
-                            scope.launch { offerUndo(deleteMessage, original) }
-                        } else {
-                            undoPending = false
-                            snackbarHostState.showSnackbar(failureMessage)
+                        when (success) {
+                            true -> {
+                                ordered.removeAll { it.rowId == selected.rowId }
+                                selectedRowId = null
+                                scope.launch { offerUndo(deleteMessage, original) }
+                            }
+                            false -> {
+                                undoPending = false
+                                snackbarHostState.showSnackbar(failureMessage)
+                            }
+                            null -> {
+                                undoPending = false
+                                undoResolutionClaimed.set(true)
+                            }
                         }
                         success
                     } finally {
@@ -527,9 +581,9 @@ private fun StickerEditorSheet(
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onReplace: () -> Unit,
-    onSaveEmoji: suspend (String) -> Boolean,
-    onSetTray: suspend () -> Boolean,
-    onDelete: suspend () -> Boolean,
+    onSaveEmoji: suspend (String) -> Boolean?,
+    onSetTray: suspend () -> Boolean?,
+    onDelete: suspend () -> Boolean?,
 ) {
     val scope = rememberCoroutineScope()
     var emojiInput by remember(item.rowId) {
@@ -605,9 +659,10 @@ private fun StickerEditorSheet(
                     val value = normalizedEmoji ?: return@Button
                     scope.launch {
                         isSaving = true
-                        saveFailed = !onSaveEmoji(value)
+                        val result = onSaveEmoji(value)
+                        saveFailed = result == false
                         isSaving = false
-                        if (!saveFailed) onDismiss()
+                        if (result == true) onDismiss()
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -641,9 +696,10 @@ private fun StickerEditorSheet(
                 onClick = {
                     scope.launch {
                         isSaving = true
-                        saveFailed = !onSetTray()
+                        val result = onSetTray()
+                        saveFailed = result == false
                         isSaving = false
-                        if (!saveFailed) onDismiss()
+                        if (result == true) onDismiss()
                     }
                 },
                 enabled = actionsEnabled && !isSaving && !item.isTray,
@@ -661,7 +717,7 @@ private fun StickerEditorSheet(
                 onClick = {
                     scope.launch {
                         isSaving = true
-                        saveFailed = !onDelete()
+                        saveFailed = onDelete() == false
                         isSaving = false
                     }
                 },

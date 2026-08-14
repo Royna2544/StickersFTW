@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.royna.stickersftw.R
 import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
+import com.royna.stickersftw.data.ForkPackResult
 import com.royna.stickersftw.data.ThemeModeCache
 import com.royna.stickersftw.data.model.PackUpdateDiffResult
 import com.royna.stickersftw.data.model.PreviewResult
@@ -37,13 +38,17 @@ import com.royna.stickersftw.operation.PackOperationController
 import com.royna.stickersftw.operation.PackOperationRequest
 import com.royna.stickersftw.operation.PackOperationService
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Shown as a full-screen prompt when an import request matches a pack/part
  * already in My Packs -- [onConfirm] overwrites it in place (same pack id,
@@ -576,30 +581,24 @@ class AppViewModel(
         )
     }
 
-    /** Re-opens an existing durable source with its saved range/crop recipe,
-     * then sends the resolved recipe through the atomic service operation. */
-    fun editSticker(packId: String, rowId: Long) {
+    /** Re-opens an existing durable source with its saved range/crop recipe.
+     * The UI resolves a possible linked-pack remix only after this preparation
+     * finishes, so canceling range/crop cannot create an unused clone. */
+    fun prepareStickerEdit(
+        packId: String,
+        rowId: Long,
+        onReady: (PickedMediaItem) -> Unit,
+    ) {
         viewModelScope.launch {
             packRepository.finalizeLastPackEdit(packId)
             val item = packRepository.editableStickerItem(packId, rowId) ?: return@launch
             trimCoordinator.begin(listOf(item)) { prepared ->
-                prepared.singleOrNull()?.let { startStickerEdit(packId, rowId, it) }
+                prepared.singleOrNull()?.let(onReady)
             }
         }
     }
 
-    /** A replacement arrives raw from the picker and receives the same
-     * range/crop treatment as a newly added sticker before conversion. */
-    fun replaceSticker(packId: String, rowId: Long, item: PickedMediaItem) {
-        viewModelScope.launch {
-            packRepository.finalizeLastPackEdit(packId)
-            trimCoordinator.begin(listOf(item)) { prepared ->
-                prepared.singleOrNull()?.let { startStickerEdit(packId, rowId, it) }
-            }
-        }
-    }
-
-    private fun startStickerEdit(packId: String, rowId: Long, item: PickedMediaItem): Boolean =
+    fun startStickerEdit(packId: String, rowId: Long, item: PickedMediaItem): Boolean =
         start(
             PackOperationRequest.EditSticker(
                 packId = packId,
@@ -608,6 +607,31 @@ class AppViewModel(
                 item = item,
             ),
         )
+
+    suspend fun forkPackForLocalEdits(packId: String, title: String): ForkPackResult? {
+        // The fork itself belongs to the ViewModel so a configuration change
+        // cannot cancel it halfway through. If the requesting screen goes
+        // away, await completion and reclaim the still-unmodified clone.
+        val task = viewModelScope.async { packRepository.forkPackForLocalEdits(packId, title) }
+        return try {
+            task.await()
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) {
+                val abandoned = runCatching { task.await() }.getOrNull()
+                abandoned?.let { packRepository.discardUnmodifiedLocalRemix(it.newPackId) }
+            }
+            throw cancelled
+        }
+    }
+
+    suspend fun discardUnmodifiedLocalRemix(packId: String): Boolean =
+        packRepository.discardUnmodifiedLocalRemix(packId)
+
+    fun ensureEditorOperationAvailable(): Boolean {
+        if (!PackOperationController.isRunning) return true
+        _busyMessage.value = getApplication<Application>().getString(R.string.err_operation_already_running)
+        return false
+    }
 
     suspend fun updateStickerEmojis(packId: String, rowId: Long, emojis: List<String>): Boolean =
         packRepository.updateStickerEmojis(packId, rowId, emojis)
@@ -642,6 +666,10 @@ class AppViewModel(
      * non-destructive crop before handing the edited items to [onReady]. */
     fun prepareMedia(items: List<PickedMediaItem>, onReady: (List<PickedMediaItem>) -> Unit) {
         viewModelScope.launch { trimCoordinator.begin(items, onReady) }
+    }
+
+    fun discardPreparedMedia(items: List<PickedMediaItem>) {
+        trimCoordinator.discardResolved(items)
     }
 
     fun setTrimRange(startMs: Long, durationMs: Long) {
