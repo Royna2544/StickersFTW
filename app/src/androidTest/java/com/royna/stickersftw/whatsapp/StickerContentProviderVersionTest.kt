@@ -14,6 +14,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertArrayEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,7 +30,7 @@ class StickerContentProviderVersionTest {
     private val database = AppDatabase.getInstance(context)
     private val packId = "test-${UUID.randomUUID()}"
 
-    private fun packRow(version: Int) = PackEntity(
+    private fun packRow(version: Int, trayIconPath: String? = null) = PackEntity(
         id = packId,
         origin = PackOrigin.Created.name,
         telegramSetName = null,
@@ -42,7 +43,7 @@ class StickerContentProviderVersionTest {
         status = PackStatus.Ready.name,
         errorMessage = null,
         warningMessage = null,
-        trayIconPath = null,
+        trayIconPath = trayIconPath,
         isPinned = false,
         whatsappAdded = false,
         createdAtMillis = 0L,
@@ -107,5 +108,25 @@ class StickerContentProviderVersionTest {
         assertEquals("7", readVersion())
         runBlocking { database.packDao().upsert(packRow(version = 8)) }
         assertEquals("8", readVersion())
+    }
+
+    @Test
+    fun trayRequestReadsTheVersionedStoredPath() {
+        val legacy = File(context.filesDir, "packs/$packId/${WhatsAppContract.TRAY_ICON_FILE_NAME}")
+        legacy.parentFile?.mkdirs()
+        legacy.writeBytes(byteArrayOf(1, 1, 1))
+        val versioned = File(context.filesDir, "packs/$packId/tray-edit.webp")
+        versioned.writeBytes(byteArrayOf(7, 8, 9, 10))
+        runBlocking {
+            database.packDao().upsert(packRow(version = 8, trayIconPath = versioned.absolutePath))
+        }
+        val uri = Uri.parse(
+            "content://${WhatsAppContract.authorityFor(context)}/stickers_asset/" +
+                "$packId/${WhatsAppContract.TRAY_ICON_FILE_NAME}",
+        )
+
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+
+        assertArrayEquals(versioned.readBytes(), bytes)
     }
 }

@@ -3,6 +3,7 @@ package com.royna.stickersftw.data
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.room.withTransaction
 import com.royna.stickersftw.R
 import com.royna.stickersftw.conversion.PackConversionPlanner
 import com.royna.stickersftw.conversion.PlannerResult
@@ -33,6 +34,7 @@ import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 import com.royna.stickersftw.model.StickerGridItem
 import com.royna.stickersftw.model.StickerPack
+import com.royna.stickersftw.model.parseStickerEmojis
 import com.royna.stickersftw.model.TelegramPushState
 import com.royna.stickersftw.network.ApiResult
 import com.royna.stickersftw.network.TelegramBackend
@@ -46,7 +48,9 @@ import com.royna.stickersftw.whatsapp.WhatsAppIntents
 import com.royna.stickersftw.whatsapp.WhatsAppWhitelistChecker
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -56,12 +60,34 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** How many sticker paths [StickerPack.previewStickerPaths] carries -- three
  * full rows of the pack detail screen's six-column preview grid. Derived on
  * every read rather than stored, so changing it takes effect for packs that
  * are already imported. The full set lives behind "View all stickers". */
 private const val PREVIEW_STICKER_LIMIT = 18
+/** Canonical storage shape shared by WhatsApp and Telegram. Each supplied
+ * chip may itself contain a legacy comma-joined value, so both forms are
+ * accepted while the editor transitions to a real chip list. */
+internal fun normalizeStickerEmojis(emojis: List<String>): String {
+    val normalized = emojis
+        .flatMap { parseStickerEmojis(it).orEmpty() }
+        .distinct()
+        .take(SizeBudget.MAX_EMOJIS)
+    return (normalized.ifEmpty { listOf(SizeBudget.FALLBACK_EMOJI) }).joinToString(",")
+}
+
+/** Returns a complete requested order only when it names every current row
+ * exactly once. Kept pure so drag/drop validation can be pinned by JVM tests. */
+internal fun validatedStickerOrder(currentIds: List<Long>, requestedIds: List<Long>): List<Long>? =
+    requestedIds.takeIf {
+        it.size == currentIds.size &&
+            it.distinct().size == it.size &&
+            it.toSet() == currentIds.toSet()
+    }
 
 /** Unifies Room persistence, the network client, the conversion pipeline,
  * and WhatsApp registration behind one API the ViewModel drives. Constructed
@@ -70,6 +96,8 @@ class StickerPackRepository(private val appContext: Context) {
     private val database = AppDatabase.getInstance(appContext)
     private val packDao: PackDao = database.packDao()
     private val stickerDao: StickerDao = database.stickerDao()
+    private val pendingEditMutex = Mutex()
+    private val pendingEdits = mutableMapOf<String, PendingPackEdit>()
 
     /** A lightweight reachability check (hits the same cheap /v1/bot route
      * used to show the bot's username) -- deliberately a single attempt with
@@ -82,17 +110,432 @@ class StickerPackRepository(private val appContext: Context) {
     fun observePacks(): Flow<List<StickerPack>> =
         packDao.observePacksWithStickers().map { list -> list.map { it.toUiModel() } }
 
-    /** Every converted sticker in a pack, in order, for the read-only grid
-     * viewer -- unlike [StickerPack.previewStickerPaths], not truncated. */
+    /** Every converted sticker in a pack, in stable editable order. */
     fun observePackStickers(packId: String): Flow<List<StickerGridItem>> =
         packDao.observePackWithStickers(packId).map { packWithStickers ->
             packWithStickers?.stickers
                 ?.sortedBy { it.position }
                 ?.mapNotNull { sticker ->
-                    sticker.convertedWhatsappPath?.let { StickerGridItem(it, sticker.emojis) }
+                    sticker.convertedWhatsappPath?.let { path ->
+                        val type = sticker.mediaType()
+                        StickerGridItem(
+                            rowId = sticker.rowId,
+                            position = sticker.position,
+                            path = path,
+                            emoji = sticker.emojis,
+                            isVideo = type == StickerMediaType.Video,
+                            isTray = packWithStickers.pack.trayStickerRowId == sticker.rowId,
+                            canEditVisual = type != StickerMediaType.AnimatedLottie,
+                        )
+                    }
                 }
                 .orEmpty()
         }
+
+    /** Loads the durable source and its current non-destructive recipe for
+     * the existing crop/range coordinator. TGS sources deliberately return
+     * null: replacing them is supported, bitmap-style visual editing is not. */
+    suspend fun editableStickerItem(packId: String, rowId: Long): PickedMediaItem? =
+        withContext(Dispatchers.IO) {
+            val sticker = stickerDao.findByRowIdInPack(packId, rowId) ?: return@withContext null
+            if (sticker.mediaType() == StickerMediaType.AnimatedLottie) return@withContext null
+            val original = sticker.originalFilePath?.let(::File)?.takeIf(File::exists)
+                ?: return@withContext null
+            PickedMediaItem(
+                uri = Uri.fromFile(original).toString(),
+                kind = if (sticker.mediaType() == StickerMediaType.Video) {
+                    PickedMediaKind.Video
+                } else {
+                    PickedMediaKind.Image
+                },
+                emoji = normalizeStickerEmojis(listOf(sticker.emojis)),
+                trimStartMs = sticker.trimStartMs,
+                trimDurationMs = sticker.trimDurationMs,
+                crop = sticker.mediaCrop(),
+            )
+        }
+
+    /** Atomically replaces one sticker's source recipe and WhatsApp output.
+     * New files have unique names and remain unreachable until the Room
+     * transaction swaps both the row and pack revision. */
+    fun editSticker(
+        packId: String,
+        rowId: Long,
+        item: PickedMediaItem,
+        bias: ConversionBias = ConversionBias.Auto,
+    ): Flow<PackOperationProgress> = flow {
+        finalizeLastPackEdit(packId)
+        val initialPack = packDao.getPack(packId)
+        val initialSticker = stickerDao.findByRowIdInPack(packId, rowId)
+        if (initialPack == null || initialSticker == null) {
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
+            return@flow
+        }
+
+        val packDir = File(appContext.filesDir, "packs/$packId")
+        val token = UUID.randomUUID().toString().replace("-", "")
+        val newOriginal = File(packDir, "original/$rowId-$token.bin")
+        val newWhatsapp = File(packDir, "converted/$rowId-$token.webp")
+        val newTray = if (initialPack.trayStickerRowId == rowId) {
+            File(packDir, "tray-$token.webp")
+        } else {
+            null
+        }
+        val newFiles = listOfNotNull(newOriginal, newWhatsapp, newTray)
+        var committed = false
+
+        try {
+            emit(
+                PackOperationProgress.Progress(
+                    appContext.getString(R.string.stage_preparing_media, 1, 1),
+                    0.15f,
+                    slowFormat = item.kind == PickedMediaKind.Video,
+                ),
+            )
+            if (!copyUriToFile(item.uri, newOriginal)) {
+                emit(PackOperationProgress.Failed(appContext.getString(R.string.err_could_not_read_sticker_media)))
+                return@flow
+            }
+
+            val type = if (item.kind == PickedMediaKind.Video) StickerMediaType.Video else StickerMediaType.Static
+            emit(
+                PackOperationProgress.Progress(
+                    appContext.getString(R.string.stage_converting_whatsapp, 1, 1),
+                    0.55f,
+                    slowFormat = item.kind == PickedMediaKind.Video,
+                ),
+            )
+            val conversion = StickerConversionPipeline.convertForWhatsappForced(
+                appContext,
+                newOriginal,
+                newWhatsapp,
+                type,
+                forceAnimated = initialPack.isAnimatedPack,
+                bias = bias,
+                trimStartMs = item.trimStartMs,
+                trimDurationMs = item.trimDurationMs,
+                crop = item.crop,
+            )
+            if (conversion is StickerConvertResult.Failed) {
+                emit(PackOperationProgress.Failed(conversion.reason))
+                return@flow
+            }
+            val success = conversion as StickerConvertResult.Success
+
+            if (newTray != null) {
+                emit(
+                    PackOperationProgress.Progress(
+                        appContext.getString(R.string.stage_building_tray_icon),
+                        0.8f,
+                        slowFormat = item.kind == PickedMediaKind.Video,
+                    ),
+                )
+                val trayResult = StickerConversionPipeline.buildTrayIcon(
+                    newOriginal,
+                    type,
+                    newTray,
+                    trimStartMs = item.trimStartMs,
+                    trimDurationMs = item.trimDurationMs,
+                    crop = item.crop,
+                )
+                if (trayResult is StickerConvertResult.Failed) {
+                    emit(PackOperationProgress.Failed(trayResult.reason))
+                    return@flow
+                }
+            }
+
+            val replaced = withContext(NonCancellable) {
+                database.withTransaction {
+                    val currentPack = packDao.getPack(packId) ?: return@withTransaction null
+                    val currentSticker = stickerDao.findByRowIdInPack(packId, rowId)
+                        ?: return@withTransaction null
+                    // A DB-only edit can happen while media is converting. Never
+                    // overwrite it with a recipe based on a stale row/revision.
+                    if (currentPack.imageDataVersion != initialPack.imageDataVersion ||
+                        currentSticker != initialSticker
+                    ) {
+                        return@withTransaction null
+                    }
+
+                    stickerDao.upsert(
+                        currentSticker.copy(
+                            sniffedContentType = null,
+                            sourceLocalUri = Uri.fromFile(newOriginal).toString(),
+                            isVideo = item.kind == PickedMediaKind.Video,
+                            originalFilePath = newOriginal.absolutePath,
+                            convertedWhatsappPath = newWhatsapp.absolutePath,
+                            conversionStatus = if (success.warning == null) {
+                                "Done"
+                            } else {
+                                "DoneWithWarning"
+                            },
+                            conversionError = success.warning,
+                            trimStartMs = item.trimStartMs,
+                            trimDurationMs = item.trimDurationMs,
+                            cropLeft = item.crop?.left,
+                            cropTop = item.crop?.top,
+                            cropRight = item.crop?.right,
+                            cropBottom = item.crop?.bottom,
+                        ),
+                    )
+                    packDao.upsert(
+                        currentPack.bumpRevision().copy(
+                            trayIconPath = newTray?.absolutePath ?: currentPack.trayIconPath,
+                        ),
+                    )
+                    CommittedVisualEdit(
+                        oldSticker = currentSticker,
+                        oldTrayPath = currentPack.trayIconPath.takeIf { newTray != null },
+                    )
+                }.also { edit ->
+                    if (edit != null) {
+                        // This flag and reclamation must happen in the same
+                        // non-cancellable section as the committed swap. A
+                        // collector disappearing must never make finally
+                        // delete files that Room already points at.
+                        committed = true
+                        deleteOwnedPackFiles(
+                            packDir,
+                            listOfNotNull(
+                                edit.oldSticker.originalFilePath,
+                                edit.oldSticker.convertedWhatsappPath,
+                                edit.oldTrayPath,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            if (replaced == null) {
+                emit(PackOperationProgress.Failed(appContext.getString(R.string.err_unexpected)))
+                return@flow
+            }
+            emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_done), 1f))
+            emit(PackOperationProgress.Complete(packId))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            emit(PackOperationProgress.Failed(error.message ?: appContext.getString(R.string.err_unexpected)))
+        } finally {
+            if (!committed) newFiles.forEach(File::delete)
+        }
+    }.flowOn(Dispatchers.IO)
+
+    suspend fun updateStickerEmojis(
+        packId: String,
+        rowId: Long,
+        emojis: List<String>,
+    ): Boolean = withContext(Dispatchers.IO) {
+        finalizeLastPackEdit(packId)
+        val normalized = parseStickerEmojis(emojis.joinToString(" "))
+            ?.joinToString(",")
+            ?: return@withContext false
+        database.withTransaction {
+            val pack = packDao.getPack(packId) ?: return@withTransaction false
+            val sticker = stickerDao.findByRowIdInPack(packId, rowId) ?: return@withTransaction false
+            if (sticker.emojis == normalized) return@withTransaction true
+            stickerDao.upsert(sticker.copy(emojis = normalized))
+            packDao.upsert(pack.bumpRevision())
+            true
+        }
+    }
+
+    suspend fun updateStickerEmojis(packId: String, rowId: Long, emojis: String): Boolean =
+        updateStickerEmojis(packId, rowId, listOf(emojis))
+
+    /** Renders a new 96px tray before exposing it. The ContentProvider maps
+     * WhatsApp's stable `tray.webp` request to this versioned stored path. */
+    suspend fun setTraySticker(packId: String, rowId: Long): Boolean = withContext(Dispatchers.IO) {
+        finalizeLastPackEdit(packId)
+        val initialPack = packDao.getPack(packId) ?: return@withContext false
+        val initialSticker = stickerDao.findByRowIdInPack(packId, rowId) ?: return@withContext false
+        if (initialSticker.convertedWhatsappPath == null) return@withContext false
+        if (initialPack.trayStickerRowId == rowId &&
+            initialPack.trayIconPath?.let(::File)?.exists() == true
+        ) {
+            return@withContext true
+        }
+
+        val original = initialSticker.originalFilePath?.let(::File)?.takeIf(File::exists)
+        val converted = initialSticker.convertedWhatsappPath.let(::File).takeIf(File::exists)
+        val source = original ?: converted ?: return@withContext false
+        val useOriginalRecipe = source == original
+        val type = if (useOriginalRecipe) initialSticker.mediaType() else StickerMediaType.Static
+        val packDir = File(appContext.filesDir, "packs/$packId")
+        val output = File(
+            packDir,
+            "tray-${UUID.randomUUID().toString().replace("-", "")}.webp",
+        )
+        val result = StickerConversionPipeline.buildTrayIcon(
+            source,
+            type,
+            output,
+            trimStartMs = initialSticker.trimStartMs.takeIf { useOriginalRecipe } ?: 0L,
+            trimDurationMs = initialSticker.trimDurationMs.takeIf { useOriginalRecipe } ?: 0L,
+            crop = initialSticker.mediaCrop().takeIf { useOriginalRecipe },
+        )
+        if (result is StickerConvertResult.Failed) {
+            output.delete()
+            return@withContext false
+        }
+
+        val oldTray = database.withTransaction {
+            val currentPack = packDao.getPack(packId) ?: return@withTransaction null
+            val currentSticker = stickerDao.findByRowIdInPack(packId, rowId)
+                ?: return@withTransaction null
+            if (currentPack.imageDataVersion != initialPack.imageDataVersion ||
+                currentSticker != initialSticker
+            ) {
+                return@withTransaction null
+            }
+            packDao.upsert(
+                currentPack.bumpRevision().copy(
+                    trayIconPath = output.absolutePath,
+                    trayStickerRowId = rowId,
+                ),
+            )
+            currentPack.trayIconPath ?: ""
+        }
+        if (oldTray == null) {
+            output.delete()
+            return@withContext false
+        }
+        deleteOwnedPackFiles(packDir, listOf(oldTray).filter(String::isNotEmpty))
+        true
+    }
+
+    /** Applies one complete drag result. Hidden failed rows stay behind the
+     * visible set, while visible row IDs must be present exactly once. */
+    suspend fun reorderStickers(packId: String, orderedRowIds: List<Long>): Boolean =
+        withContext(Dispatchers.IO + NonCancellable) {
+            finalizeLastPackEdit(packId)
+            var pending: PendingPackEdit.Reorder? = null
+            val changed = database.withTransaction {
+                val pack = packDao.getPack(packId) ?: return@withTransaction false
+                val rows = stickerDao.getStickersOnce(packId).sortedBy { it.position }
+                val usable = rows.filter { it.convertedWhatsappPath != null }
+                val requested = validatedStickerOrder(usable.map { it.rowId }, orderedRowIds)
+                    ?: return@withTransaction false
+                if (requested == usable.map { it.rowId }) return@withTransaction true
+
+                val byId = usable.associateBy { it.rowId }
+                val reordered = requested.map { byId.getValue(it) } +
+                    rows.filter { it.convertedWhatsappPath == null }
+                val oldPositions = rows.associate { it.rowId to it.position }
+                val updatedPack = pack.bumpRevision()
+                stickerDao.upsertAll(
+                    reordered.mapIndexed { index, sticker -> sticker.copy(position = index) },
+                )
+                packDao.upsert(updatedPack)
+                pending = PendingPackEdit.Reorder(
+                    packId = packId,
+                    previousPositions = oldPositions,
+                    syncSnapshot = pack.syncSnapshot(),
+                    appliedVersion = updatedPack.imageDataVersion,
+                )
+                true
+            }
+            pending?.let { edit -> pendingEditMutex.withLock { pendingEdits[packId] = edit } }
+            changed
+        }
+
+    /** Removes a visible sticker while retaining its files and full row until
+     * the Snackbar either restores it or calls [finalizeLastPackEdit]. */
+    suspend fun deleteSticker(packId: String, rowId: Long): Boolean =
+        withContext(Dispatchers.IO + NonCancellable) {
+            finalizeLastPackEdit(packId)
+            var pending: PendingPackEdit.Delete? = null
+            val deleted = database.withTransaction {
+                val pack = packDao.getPack(packId) ?: return@withTransaction false
+                val rows = stickerDao.getStickersOnce(packId).sortedBy { it.position }
+                val usable = rows.filter { it.convertedWhatsappPath != null }
+                if (usable.size <= SizeBudget.MIN_STICKERS) return@withTransaction false
+                val target = usable.firstOrNull { it.rowId == rowId }
+                    ?: return@withTransaction false
+                val oldPositions = rows.associate { it.rowId to it.position }
+                val remaining = rows.filterNot { it.rowId == rowId }
+                    .mapIndexed { index, sticker -> sticker.copy(position = index) }
+                val updatedPack = pack.bumpRevision().copy(
+                    stickerCount = usable.size - 1,
+                    trayStickerRowId = pack.trayStickerRowId.takeUnless { it == rowId },
+                )
+                stickerDao.deleteByRowId(rowId)
+                stickerDao.upsertAll(remaining)
+                packDao.upsert(updatedPack)
+                pending = PendingPackEdit.Delete(
+                    packId = packId,
+                    deletedSticker = target,
+                    previousPositions = oldPositions,
+                    previousStickerCount = pack.stickerCount,
+                    previousTrayStickerRowId = pack.trayStickerRowId,
+                    syncSnapshot = pack.syncSnapshot(),
+                    appliedVersion = updatedPack.imageDataVersion,
+                )
+                true
+            }
+            pending?.let { edit -> pendingEditMutex.withLock { pendingEdits[packId] = edit } }
+            deleted
+        }
+
+    suspend fun undoLastPackEdit(packId: String) = withContext(Dispatchers.IO) {
+        val pending = pendingEditMutex.withLock { pendingEdits.remove(packId) }
+            ?: return@withContext
+        val restored = database.withTransaction {
+            val pack = packDao.getPack(packId) ?: return@withTransaction false
+            if (pack.imageDataVersion != pending.appliedVersion) return@withTransaction false
+            val rows = stickerDao.getStickersOnce(packId)
+            when (pending) {
+                is PendingPackEdit.Reorder -> {
+                    if (rows.map { it.rowId }.toSet() != pending.previousPositions.keys) {
+                        return@withTransaction false
+                    }
+                    stickerDao.upsertAll(
+                        rows.map { sticker ->
+                            sticker.copy(position = pending.previousPositions.getValue(sticker.rowId))
+                        },
+                    )
+                    packDao.upsert(pack.bumpRevision(pending.syncSnapshot))
+                }
+                is PendingPackEdit.Delete -> {
+                    val expectedCurrent = pending.previousPositions.keys - pending.deletedSticker.rowId
+                    if (rows.map { it.rowId }.toSet() != expectedCurrent) {
+                        return@withTransaction false
+                    }
+                    val restoredRows = rows.map { sticker ->
+                        sticker.copy(position = pending.previousPositions.getValue(sticker.rowId))
+                    } + pending.deletedSticker.copy(
+                        position = pending.previousPositions.getValue(pending.deletedSticker.rowId),
+                    )
+                    stickerDao.upsertAll(restoredRows)
+                    packDao.upsert(
+                        pack.bumpRevision(pending.syncSnapshot).copy(
+                            stickerCount = pending.previousStickerCount,
+                            trayStickerRowId = pending.previousTrayStickerRowId,
+                        ),
+                    )
+                }
+            }
+            true
+        }
+        if (!restored) {
+            pendingEditMutex.withLock { pendingEdits.putIfAbsent(packId, pending) }
+        }
+    }
+
+    suspend fun finalizeLastPackEdit(packId: String) = withContext(Dispatchers.IO) {
+        val pending = pendingEditMutex.withLock { pendingEdits.remove(packId) }
+            ?: return@withContext
+        if (pending is PendingPackEdit.Delete) {
+            deleteOwnedPackFiles(
+                File(appContext.filesDir, "packs/$packId"),
+                listOfNotNull(
+                    pending.deletedSticker.originalFilePath,
+                    pending.deletedSticker.convertedWhatsappPath,
+                    pending.deletedSticker.convertedTelegramPath,
+                ),
+            )
+        }
+    }
 
     // ---- Fetch (Telegram -> convert -> WhatsApp) --------------------------
 
@@ -677,6 +1120,14 @@ class StickerPackRepository(private val appContext: Context) {
         val trayFile = File(packDir, "tray.webp")
         val trayReady = firstConvertedFile != null && firstConvertedType != null &&
             StickerConversionPipeline.buildTrayIcon(firstConvertedFile, firstConvertedType, trayFile) is StickerConvertResult.Success
+        val trayStickerRowId = if (trayReady) {
+            stickerDao.getStickersOnce(packId)
+                .sortedBy { it.position }
+                .firstOrNull { it.convertedWhatsappPath != null }
+                ?.rowId
+        } else {
+            null
+        }
 
         finalizePackReady(
             packId,
@@ -685,6 +1136,7 @@ class StickerPackRepository(private val appContext: Context) {
             warning = warnings.joinToString(" ").ifEmpty { null },
             bias = bias,
             stickerCount = convertedCount,
+            trayStickerRowId = trayStickerRowId,
         )
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
@@ -1149,7 +1601,14 @@ class StickerPackRepository(private val appContext: Context) {
                         trimDurationMs = firstConvertedSticker?.trimDurationMs ?: 0L,
                         crop = firstConvertedSticker?.mediaCrop(),
                     ) is StickerConvertResult.Success
-                finalizePackReady(packId, packIsAnimated, trayFile.absolutePath.takeIf { trayReady }, telegramPushWarning, bias)
+                finalizePackReady(
+                    packId,
+                    packIsAnimated,
+                    trayFile.absolutePath.takeIf { trayReady },
+                    telegramPushWarning,
+                    bias,
+                    trayStickerRowId = firstConvertedSticker?.rowId.takeIf { trayReady },
+                )
             }
             pushToTelegram && telegramPushedFullName != null -> {
                 finalizePackReady(packId, packIsAnimated, pack.trayIconPath, telegramPushWarning, bias)
@@ -1262,7 +1721,10 @@ class StickerPackRepository(private val appContext: Context) {
                 isAnimatedPack = true,
                 status = PackStatus.Ready.name,
                 trayIconPath = null,
+                trayStickerRowId = null,
                 whatsappAdded = false,
+                whatsappSyncedDataVersion = null,
+                telegramSyncedDataVersion = null,
                 createdAtMillis = now,
                 updatedAtMillis = now,
                 importPartIndex = ANIMATED_SPLIT_PART_INDEX,
@@ -1287,7 +1749,15 @@ class StickerPackRepository(private val appContext: Context) {
             StickerConversionPipeline.buildTrayIcon(first, StickerMediaType.Static, trayFile) is
                 StickerConvertResult.Success
         if (trayReady) {
-            updatePack(newPackId) { it.copy(trayIconPath = trayFile.absolutePath) }
+            val firstRowId = stickerDao.getStickersOnce(newPackId)
+                .minByOrNull { it.position }
+                ?.rowId
+            updatePack(newPackId) {
+                it.copy(
+                    trayIconPath = trayFile.absolutePath,
+                    trayStickerRowId = firstRowId,
+                )
+            }
         }
 
         updatePack(packId) { it.copy(stickerCount = it.stickerCount - rows.size) }
@@ -1468,12 +1938,90 @@ class StickerPackRepository(private val appContext: Context) {
         val crop: MediaCrop? = null,
     )
 
+    private data class CommittedVisualEdit(
+        val oldSticker: StickerEntity,
+        val oldTrayPath: String?,
+    )
+
+    private data class TargetSyncSnapshot(
+        val whatsappWasCurrent: Boolean,
+        val telegramWasCurrent: Boolean,
+    )
+
+    private sealed interface PendingPackEdit {
+        val packId: String
+        val syncSnapshot: TargetSyncSnapshot
+        val appliedVersion: Int
+
+        data class Reorder(
+            override val packId: String,
+            val previousPositions: Map<Long, Int>,
+            override val syncSnapshot: TargetSyncSnapshot,
+            override val appliedVersion: Int,
+        ) : PendingPackEdit
+
+        data class Delete(
+            override val packId: String,
+            val deletedSticker: StickerEntity,
+            val previousPositions: Map<Long, Int>,
+            val previousStickerCount: Int,
+            val previousTrayStickerRowId: Long?,
+            override val syncSnapshot: TargetSyncSnapshot,
+            override val appliedVersion: Int,
+        ) : PendingPackEdit
+    }
+
+    private fun PackEntity.syncSnapshot() = TargetSyncSnapshot(
+        whatsappWasCurrent = whatsappSyncedDataVersion == imageDataVersion,
+        telegramWasCurrent = telegramSyncedDataVersion == imageDataVersion,
+    )
+
+    /** Revisions never move backwards, including undo. If the target matched
+     * the exact pre-edit content, undo makes the new monotonic revision match
+     * it again; a target that was already dirty stays dirty. */
+    private fun PackEntity.bumpRevision(restoring: TargetSyncSnapshot? = null): PackEntity {
+        val next = imageDataVersion + 1
+        return copy(
+            imageDataVersion = next,
+            updatedAtMillis = System.currentTimeMillis(),
+            whatsappSyncedDataVersion = if (restoring?.whatsappWasCurrent == true) {
+                next
+            } else {
+                whatsappSyncedDataVersion
+            },
+            telegramSyncedDataVersion = if (restoring?.telegramWasCurrent == true) {
+                next
+            } else {
+                telegramSyncedDataVersion
+            },
+        )
+    }
+
+    private fun StickerEntity.mediaType(): StickerMediaType {
+        if (isVideo) return StickerMediaType.Video
+        val classified = StickerTypeClassifier.classify(sniffedContentType)
+        if (classified != StickerMediaType.Unknown) return classified
+        val original = originalFilePath?.let(::File)?.takeIf(File::exists)
+        return original?.let(StickerTypeClassifier::reclassifyUnknown) ?: StickerMediaType.Static
+    }
+
     private fun StickerEntity.mediaCrop(): MediaCrop? {
         val left = cropLeft ?: return null
         val top = cropTop ?: return null
         val right = cropRight ?: return null
         val bottom = cropBottom ?: return null
         return MediaCrop(left, top, right, bottom)
+    }
+
+    /** Only files underneath this pack may be reclaimed. A picked content URI
+     * or any unexpected external path remains the user's property. */
+    private fun deleteOwnedPackFiles(packDir: File, paths: List<String>) {
+        val root = runCatching { packDir.canonicalFile }.getOrNull() ?: return
+        val prefix = root.path + File.separator
+        paths.distinct().forEach { path ->
+            val file = runCatching { File(path).canonicalFile }.getOrNull() ?: return@forEach
+            if (file.path.startsWith(prefix) && file.isFile) file.delete()
+        }
     }
 
     /** WhatsApp's own validator rejects a whole pack if even one sticker's
@@ -1565,6 +2113,9 @@ class StickerPackRepository(private val appContext: Context) {
          * time is the intended one, and a sticker the decoder refuses would
          * otherwise leave the pack advertising more than it holds. */
         stickerCount: Int? = null,
+        /** Updated only when this operation successfully rendered a new tray.
+         * Telegram-only publishes retain the user's existing choice. */
+        trayStickerRowId: Long? = null,
     ) {
         updatePack(packId) {
             it.copy(
@@ -1572,6 +2123,7 @@ class StickerPackRepository(private val appContext: Context) {
                 isAnimatedPack = isAnimated,
                 stickerCount = stickerCount ?: it.stickerCount,
                 trayIconPath = trayIconPath ?: it.trayIconPath,
+                trayStickerRowId = trayStickerRowId ?: it.trayStickerRowId,
                 warningMessage = warning,
                 errorMessage = null,
                 // Only meaningful for an animated pack: the knob picks how

@@ -139,6 +139,12 @@ class PackOperationService : Service() {
                 request.items,
                 settings.conversionBias,
             )
+            is PackOperationRequest.EditSticker -> packs.editSticker(
+                request.packId,
+                request.rowId,
+                request.item,
+                settings.conversionBias,
+            )
         }
     }
 

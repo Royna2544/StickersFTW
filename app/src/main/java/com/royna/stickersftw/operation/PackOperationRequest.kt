@@ -53,6 +53,16 @@ sealed class PackOperationRequest {
         val items: List<PickedMediaItem>,
     ) : PackOperationRequest()
 
+    /** Replaces one sticker's non-destructive media recipe. The repository
+     * converts into versioned files and only swaps them into the row after
+     * every required output, including a linked tray, succeeds. */
+    data class EditSticker(
+        override val packId: String,
+        override val packTitle: String,
+        val rowId: Long,
+        val item: PickedMediaItem,
+    ) : PackOperationRequest()
+
     fun writeTo(intent: Intent): Intent = intent.apply {
         putExtra(KEY_PACK_ID, packId)
         putExtra(KEY_PACK_TITLE, packTitle)
@@ -75,16 +85,12 @@ sealed class PackOperationRequest {
             }
             is AddStickers -> {
                 putExtra(KEY_KIND, KIND_ADD_STICKERS)
-                putExtra(KEY_ITEM_URIS, items.map { it.uri }.toTypedArray())
-                putExtra(KEY_ITEM_EMOJIS, items.map { it.emoji }.toTypedArray())
-                putExtra(KEY_ITEM_IS_VIDEO, items.map { it.kind == PickedMediaKind.Video }.toBooleanArray())
-                putExtra(KEY_ITEM_TRIM_STARTS, items.map { it.trimStartMs }.toLongArray())
-                putExtra(KEY_ITEM_TRIM_DURATIONS, items.map { it.trimDurationMs }.toLongArray())
-                putExtra(KEY_ITEM_HAS_CROP, items.map { it.crop != null }.toBooleanArray())
-                putExtra(KEY_ITEM_CROP_LEFTS, items.map { it.crop?.left ?: 0f }.toFloatArray())
-                putExtra(KEY_ITEM_CROP_TOPS, items.map { it.crop?.top ?: 0f }.toFloatArray())
-                putExtra(KEY_ITEM_CROP_RIGHTS, items.map { it.crop?.right ?: 1f }.toFloatArray())
-                putExtra(KEY_ITEM_CROP_BOTTOMS, items.map { it.crop?.bottom ?: 1f }.toFloatArray())
+                putMediaItems(items)
+            }
+            is EditSticker -> {
+                putExtra(KEY_KIND, KIND_EDIT_STICKER)
+                putExtra(KEY_ROW_ID, rowId)
+                putMediaItems(listOf(item))
             }
         }
     }
@@ -108,12 +114,14 @@ sealed class PackOperationRequest {
         private const val KEY_ITEM_CROP_TOPS = "itemCropTops"
         private const val KEY_ITEM_CROP_RIGHTS = "itemCropRights"
         private const val KEY_ITEM_CROP_BOTTOMS = "itemCropBottoms"
+        private const val KEY_ROW_ID = "rowId"
 
         private const val KIND_IMPORT = "import"
         private const val KIND_IMPORT_CUSTOM = "importCustom"
         private const val KIND_UPDATE = "update"
         private const val KIND_PUBLISH = "publish"
         private const val KIND_ADD_STICKERS = "addStickers"
+        private const val KIND_EDIT_STICKER = "editSticker"
 
         fun readFrom(intent: Intent?): PackOperationRequest? {
             val packId = intent?.getStringExtra(KEY_PACK_ID) ?: return null
@@ -138,46 +146,65 @@ sealed class PackOperationRequest {
                     intent.getBooleanExtra(KEY_PUSH_TELEGRAM, false),
                     intent.getBooleanExtra(KEY_ADD_WHATSAPP, false),
                 )
-                KIND_ADD_STICKERS -> {
-                    val uris = intent.getStringArrayExtra(KEY_ITEM_URIS).orEmpty()
-                    val emojis = intent.getStringArrayExtra(KEY_ITEM_EMOJIS).orEmpty()
-                    val isVideo = intent.getBooleanArrayExtra(KEY_ITEM_IS_VIDEO) ?: BooleanArray(uris.size)
-                    val trimStarts = intent.getLongArrayExtra(KEY_ITEM_TRIM_STARTS) ?: LongArray(uris.size)
-                    val trimDurations = intent.getLongArrayExtra(KEY_ITEM_TRIM_DURATIONS) ?: LongArray(uris.size)
-                    val hasCrop = intent.getBooleanArrayExtra(KEY_ITEM_HAS_CROP) ?: BooleanArray(uris.size)
-                    val cropLefts = intent.getFloatArrayExtra(KEY_ITEM_CROP_LEFTS) ?: FloatArray(uris.size)
-                    val cropTops = intent.getFloatArrayExtra(KEY_ITEM_CROP_TOPS) ?: FloatArray(uris.size)
-                    val cropRights = intent.getFloatArrayExtra(KEY_ITEM_CROP_RIGHTS) ?: FloatArray(uris.size) { 1f }
-                    val cropBottoms = intent.getFloatArrayExtra(KEY_ITEM_CROP_BOTTOMS) ?: FloatArray(uris.size) { 1f }
-                    AddStickers(
-                        packId,
-                        packTitle,
-                        uris.mapIndexed { index, uri ->
-                            PickedMediaItem(
-                                uri = uri,
-                                kind = if (isVideo.getOrElse(index) { false }) {
-                                    PickedMediaKind.Video
-                                } else {
-                                    PickedMediaKind.Image
-                                },
-                                emoji = emojis.getOrElse(index) { "🙂" },
-                                trimStartMs = trimStarts.getOrElse(index) { 0L },
-                                trimDurationMs = trimDurations.getOrElse(index) { 0L },
-                                crop = if (hasCrop.getOrElse(index) { false }) {
-                                    MediaCrop(
-                                        left = cropLefts.getOrElse(index) { 0f },
-                                        top = cropTops.getOrElse(index) { 0f },
-                                        right = cropRights.getOrElse(index) { 1f },
-                                        bottom = cropBottoms.getOrElse(index) { 1f },
-                                    )
-                                } else {
-                                    null
-                                },
-                            )
-                        },
-                    )
+                KIND_ADD_STICKERS -> AddStickers(packId, packTitle, intent.readMediaItems())
+                KIND_EDIT_STICKER -> intent.readMediaItems().singleOrNull()?.let { item ->
+                    EditSticker(
+                        packId = packId,
+                        packTitle = packTitle,
+                        rowId = intent.getLongExtra(KEY_ROW_ID, -1L),
+                        item = item,
+                    ).takeIf { it.rowId >= 0L }
                 }
                 else -> null
+            }
+        }
+
+        private fun Intent.putMediaItems(items: List<PickedMediaItem>) {
+            putExtra(KEY_ITEM_URIS, items.map { it.uri }.toTypedArray())
+            putExtra(KEY_ITEM_EMOJIS, items.map { it.emoji }.toTypedArray())
+            putExtra(KEY_ITEM_IS_VIDEO, items.map { it.kind == PickedMediaKind.Video }.toBooleanArray())
+            putExtra(KEY_ITEM_TRIM_STARTS, items.map { it.trimStartMs }.toLongArray())
+            putExtra(KEY_ITEM_TRIM_DURATIONS, items.map { it.trimDurationMs }.toLongArray())
+            putExtra(KEY_ITEM_HAS_CROP, items.map { it.crop != null }.toBooleanArray())
+            putExtra(KEY_ITEM_CROP_LEFTS, items.map { it.crop?.left ?: 0f }.toFloatArray())
+            putExtra(KEY_ITEM_CROP_TOPS, items.map { it.crop?.top ?: 0f }.toFloatArray())
+            putExtra(KEY_ITEM_CROP_RIGHTS, items.map { it.crop?.right ?: 1f }.toFloatArray())
+            putExtra(KEY_ITEM_CROP_BOTTOMS, items.map { it.crop?.bottom ?: 1f }.toFloatArray())
+        }
+
+        private fun Intent.readMediaItems(): List<PickedMediaItem> {
+            val uris = getStringArrayExtra(KEY_ITEM_URIS).orEmpty()
+            val emojis = getStringArrayExtra(KEY_ITEM_EMOJIS).orEmpty()
+            val isVideo = getBooleanArrayExtra(KEY_ITEM_IS_VIDEO) ?: BooleanArray(uris.size)
+            val trimStarts = getLongArrayExtra(KEY_ITEM_TRIM_STARTS) ?: LongArray(uris.size)
+            val trimDurations = getLongArrayExtra(KEY_ITEM_TRIM_DURATIONS) ?: LongArray(uris.size)
+            val hasCrop = getBooleanArrayExtra(KEY_ITEM_HAS_CROP) ?: BooleanArray(uris.size)
+            val cropLefts = getFloatArrayExtra(KEY_ITEM_CROP_LEFTS) ?: FloatArray(uris.size)
+            val cropTops = getFloatArrayExtra(KEY_ITEM_CROP_TOPS) ?: FloatArray(uris.size)
+            val cropRights = getFloatArrayExtra(KEY_ITEM_CROP_RIGHTS) ?: FloatArray(uris.size) { 1f }
+            val cropBottoms = getFloatArrayExtra(KEY_ITEM_CROP_BOTTOMS) ?: FloatArray(uris.size) { 1f }
+            return uris.mapIndexed { index, uri ->
+                PickedMediaItem(
+                    uri = uri,
+                    kind = if (isVideo.getOrElse(index) { false }) {
+                        PickedMediaKind.Video
+                    } else {
+                        PickedMediaKind.Image
+                    },
+                    emoji = emojis.getOrElse(index) { "🙂" },
+                    trimStartMs = trimStarts.getOrElse(index) { 0L },
+                    trimDurationMs = trimDurations.getOrElse(index) { 0L },
+                    crop = if (hasCrop.getOrElse(index) { false }) {
+                        MediaCrop(
+                            left = cropLefts.getOrElse(index) { 0f },
+                            top = cropTops.getOrElse(index) { 0f },
+                            right = cropRights.getOrElse(index) { 1f },
+                            bottom = cropBottoms.getOrElse(index) { 1f },
+                        )
+                    } else {
+                        null
+                    },
+                )
             }
         }
     }

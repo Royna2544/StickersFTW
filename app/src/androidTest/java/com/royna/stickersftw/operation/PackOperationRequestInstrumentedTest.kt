@@ -56,4 +56,25 @@ class PackOperationRequestInstrumentedTest {
 
         assertEquals(0L, restored.items.single().trimDurationMs)
     }
+
+    @Test
+    fun editStickerRoundTripKeepsTargetAndRecipe() {
+        val request = PackOperationRequest.EditSticker(
+            packId = "pack-id",
+            packTitle = "Pack",
+            rowId = 42L,
+            item = PickedMediaItem(
+                uri = "file:///edited.mp4",
+                kind = PickedMediaKind.Video,
+                emoji = "🎞️",
+                trimStartMs = 1_250L,
+                trimDurationMs = 2_750L,
+                crop = MediaCrop(0.15f, 0.2f, 0.85f, 0.9f),
+            ),
+        )
+
+        val restored = PackOperationRequest.readFrom(request.writeTo(Intent()))
+
+        assertEquals(request, restored)
+    }
 }

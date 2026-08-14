@@ -143,13 +143,18 @@ data class StickerPack(
     val conversionBias: ConversionBias? = null,
 )
 
-/** One entry in the read-only full sticker grid viewer (see
- * StickerGridScreen) -- unlike [StickerPack.previewStickerPaths]/
- * [previewEmojis], this pairs each sticker with its own emoji and isn't
- * truncated to a small preview count. */
+/** One stable, editable entry in a pack's full sticker grid. File paths stay
+ * presentation-only; mutations address [rowId] so a versioned output swap
+ * cannot make an action target the wrong sticker. */
 data class StickerGridItem(
+    val rowId: Long,
+    val position: Int,
     val path: String,
     val emoji: String,
+    val isVideo: Boolean,
+    val isTray: Boolean,
+    /** TGS/Lottie sources cannot use the bitmap crop/range editor. */
+    val canEditVisual: Boolean,
 )
 
 /** Shared progress shape for both the fetch-and-convert flow

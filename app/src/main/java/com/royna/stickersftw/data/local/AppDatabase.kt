@@ -67,7 +67,7 @@ abstract class AppDatabase : RoomDatabase() {
         /** Adds the exact selected video length and the revision anchors used
          * by pack editing. Existing video rows retain the old destination
          * maximum because zero is the duration's legacy sentinel. */
-        private val MIGRATION_6_7 = object : Migration(6, 7) {
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(connection: SQLiteConnection) {
                 connection.execSQL(
                     "ALTER TABLE stickers ADD COLUMN trimDurationMs INTEGER NOT NULL DEFAULT 0",

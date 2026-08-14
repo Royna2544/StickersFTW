@@ -576,6 +576,62 @@ class AppViewModel(
         )
     }
 
+    /** Re-opens an existing durable source with its saved range/crop recipe,
+     * then sends the resolved recipe through the atomic service operation. */
+    fun editSticker(packId: String, rowId: Long) {
+        viewModelScope.launch {
+            packRepository.finalizeLastPackEdit(packId)
+            val item = packRepository.editableStickerItem(packId, rowId) ?: return@launch
+            trimCoordinator.begin(listOf(item)) { prepared ->
+                prepared.singleOrNull()?.let { startStickerEdit(packId, rowId, it) }
+            }
+        }
+    }
+
+    /** A replacement arrives raw from the picker and receives the same
+     * range/crop treatment as a newly added sticker before conversion. */
+    fun replaceSticker(packId: String, rowId: Long, item: PickedMediaItem) {
+        viewModelScope.launch {
+            packRepository.finalizeLastPackEdit(packId)
+            trimCoordinator.begin(listOf(item)) { prepared ->
+                prepared.singleOrNull()?.let { startStickerEdit(packId, rowId, it) }
+            }
+        }
+    }
+
+    private fun startStickerEdit(packId: String, rowId: Long, item: PickedMediaItem): Boolean =
+        start(
+            PackOperationRequest.EditSticker(
+                packId = packId,
+                packTitle = packs.value.firstOrNull { it.id == packId }?.title.orEmpty(),
+                rowId = rowId,
+                item = item,
+            ),
+        )
+
+    suspend fun updateStickerEmojis(packId: String, rowId: Long, emojis: List<String>): Boolean =
+        packRepository.updateStickerEmojis(packId, rowId, emojis)
+
+    suspend fun updateStickerEmojis(packId: String, rowId: Long, emojis: String): Boolean =
+        packRepository.updateStickerEmojis(packId, rowId, emojis)
+
+    suspend fun setTraySticker(packId: String, rowId: Long): Boolean =
+        packRepository.setTraySticker(packId, rowId)
+
+    suspend fun deleteSticker(packId: String, rowId: Long): Boolean =
+        packRepository.deleteSticker(packId, rowId)
+
+    suspend fun reorderStickers(packId: String, orderedRowIds: List<Long>): Boolean =
+        packRepository.reorderStickers(packId, orderedRowIds)
+
+    suspend fun undoLastPackEdit(packId: String) {
+        packRepository.undoLastPackEdit(packId)
+    }
+
+    suspend fun finalizeLastPackEdit(packId: String) {
+        packRepository.finalizeLastPackEdit(packId)
+    }
+
     // ---- Preparing picked media (trim + crop) -------------------------
 
     private val trimCoordinator = MediaTrimCoordinator(application)

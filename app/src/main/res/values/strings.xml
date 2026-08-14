@@ -209,7 +209,7 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="pack_detail_not_found">Pack not found</string>
     <string name="pack_detail_preview">Preview</string>
     <string name="pack_detail_no_stickers">No converted stickers yet.</string>
-    <string name="action_view_all_stickers">  View all stickers</string>
+    <string name="action_view_all_stickers">  Edit stickers</string>
     <string name="action_push_to_telegram">  Push to Telegram</string>
     <string name="action_finish_push_to_telegram">  Finish pushing to Telegram</string>
     <string name="action_delete_local_pack">  Delete local pack</string>
@@ -220,6 +220,28 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="badge_on_telegram">On Telegram</string>
     <string name="badge_on_telegram_partial">On Telegram (%1$d/%2$d)</string>
     <string name="pack_detail_animated_suffix">" · animated"</string>
+
+    <!-- Local sticker editor -->
+    <string name="sticker_editor_sticker">Sticker</string>
+    <string name="sticker_editor_tray">Tray</string>
+    <string name="sticker_editor_emoji_label">Emoji</string>
+    <string name="sticker_editor_emoji_hint">Enter 1–3 emoji, separated by spaces.</string>
+    <string name="sticker_editor_emoji_error">Enter between 1 and 3 emoji.</string>
+    <string name="sticker_editor_save_emoji">Save emoji</string>
+    <string name="sticker_editor_edit_visual">Edit crop / range</string>
+    <string name="sticker_editor_visual_unavailable">Crop and range editing are not available for this sticker format.</string>
+    <string name="sticker_editor_replace">Replace media</string>
+    <string name="sticker_editor_set_tray">Use as tray sticker</string>
+    <string name="sticker_editor_current_tray">Current tray sticker</string>
+    <string name="sticker_editor_delete_minimum">A pack must keep at least 3 stickers.</string>
+    <string name="sticker_editor_move_earlier">Move earlier</string>
+    <string name="sticker_editor_move_later">Move later</string>
+    <string name="sticker_editor_reordered">Sticker order updated</string>
+    <string name="sticker_editor_deleted">Sticker deleted</string>
+    <string name="sticker_editor_save_failed">Couldn’t save that change.</string>
+    <string name="sticker_editor_working">Updating sticker…</string>
+    <string name="sticker_editor_progress">%1$d%%</string>
+    <string name="action_undo">Undo</string>
 
     <!-- Custom sticker picker screen -->
     <string name="custom_picker_title">Pick stickers</string>

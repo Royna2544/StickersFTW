@@ -449,6 +449,19 @@ fun StickersFtwApp(
                     packTitle = pack?.title.orEmpty(),
                     stickers = stickers,
                     onBack = { navController.popBackStack() },
+                    onEdit = { rowId -> viewModel.editSticker(id, rowId) },
+                    onReplace = { rowId, item -> viewModel.replaceSticker(id, rowId, item) },
+                    onUpdateEmoji = { rowId, emojis ->
+                        viewModel.updateStickerEmojis(id, rowId, emojis)
+                    },
+                    onSetTray = { rowId -> viewModel.setTraySticker(id, rowId) },
+                    onDelete = { rowId -> viewModel.deleteSticker(id, rowId) },
+                    onReorder = { rowIds -> viewModel.reorderStickers(id, rowIds) },
+                    onUndo = { viewModel.undoLastPackEdit(id) },
+                    onFinalizeUndo = { viewModel.finalizeLastPackEdit(id) },
+                    isBusy = conversion.isRunning && conversion.packId == id,
+                    busyStage = conversion.stage,
+                    busyProgress = conversion.progress,
                 )
             }
             composable(Routes.Conversion) { entry ->

@@ -23,6 +23,9 @@ interface StickerDao {
     @Query("SELECT * FROM stickers WHERE rowId = :rowId LIMIT 1")
     suspend fun findByRowId(rowId: Long): StickerEntity?
 
+    @Query("SELECT * FROM stickers WHERE packId = :packId AND rowId = :rowId LIMIT 1")
+    suspend fun findByRowIdInPack(packId: String, rowId: Long): StickerEntity?
+
     @Upsert
     suspend fun upsertAll(stickers: List<StickerEntity>)
 

@@ -71,7 +71,19 @@ class StickerContentProvider : ContentProvider() {
         val fileName = segments[2]
         val baseDir = context?.filesDir ?: return null
         val file = if (fileName == WhatsAppContract.TRAY_ICON_FILE_NAME) {
-            File(baseDir, "packs/$packId/${WhatsAppContract.TRAY_ICON_FILE_NAME}")
+            // Metadata keeps WhatsApp's stable public name (`tray.webp`), but
+            // the stored asset itself is versioned so an editor can render a
+            // replacement before atomically swapping the pack row. Fall back
+            // to the legacy canonical path for pre-v7/partially migrated data.
+            val packRoot = runCatching { File(baseDir, "packs/$packId").canonicalFile }.getOrNull()
+            packDao.getReadyPackBlocking(packId)
+                ?.trayIconPath
+                ?.let { path -> runCatching { File(path).canonicalFile }.getOrNull() }
+                ?.takeIf { candidate ->
+                    packRoot != null && candidate.path.startsWith(packRoot.path + File.separator)
+                }
+                ?.takeIf(File::exists)
+                ?: File(baseDir, "packs/$packId/${WhatsAppContract.TRAY_ICON_FILE_NAME}")
         } else {
             File(baseDir, "packs/$packId/converted/$fileName")
         }
