@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import com.royna.stickersftw.model.ConversionBias
+import com.royna.stickersftw.model.MediaCrop
 import java.io.File
 
 /** Orchestrates per-sticker conversion for both destinations. */
@@ -29,10 +30,11 @@ object StickerConversionPipeline {
         stickerType: StickerMediaType,
         bias: ConversionBias = ConversionBias.Auto,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
-        val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX, trimStartMs)
+        val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX, trimStartMs, crop)
             ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
 
         val isAnimated = frames.size > 1
@@ -69,10 +71,11 @@ object StickerConversionPipeline {
         forceAnimated: Boolean,
         bias: ConversionBias = ConversionBias.Auto,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
-        val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX, trimStartMs)
+        val frames = framesFor(input, stickerType, SizeBudget.STICKER_PX, trimStartMs, crop)
             ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
 
         val outcome = if (forceAnimated) {
@@ -156,9 +159,10 @@ object StickerConversionPipeline {
         stickerType: StickerMediaType,
         output: File,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
-        val frame = firstFrameFor(input, stickerType, SizeBudget.TRAY_PX, trimStartMs)
+        val frame = firstFrameFor(input, stickerType, SizeBudget.TRAY_PX, trimStartMs, crop)
             ?: return StickerConvertResult.Failed("Could not build a tray icon.")
         val outcome = StaticStickerConverter.compressWithBudget(
             BitmapPrep.fitSquareWithPadding(frame, SizeBudget.TRAY_PX),
@@ -174,6 +178,7 @@ object StickerConversionPipeline {
         output: File,
         isVideo: Boolean,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
         val outcome = if (isVideo) {
@@ -183,6 +188,7 @@ object StickerConversionPipeline {
                 SizeBudget.STICKER_PX,
                 SizeBudget.TELEGRAM_VIDEO_MAX_BYTES,
                 trimStartMs,
+                crop,
             )
         } else {
             StaticStickerConverter.convertAspectPreserving(
@@ -190,6 +196,7 @@ object StickerConversionPipeline {
                 output,
                 SizeBudget.STICKER_PX,
                 SizeBudget.TELEGRAM_STATIC_MAX_BYTES,
+                crop,
             )
         }
         return outcome.toResult(output)
@@ -200,13 +207,14 @@ object StickerConversionPipeline {
         type: StickerMediaType,
         targetPx: Int,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): Bitmap? = when (type) {
         StickerMediaType.AnimatedLottie ->
             AnimatedStickerConverter.extractFrames(input, targetPx)?.firstOrNull()?.bitmap
         StickerMediaType.Video ->
-            VideoStickerConverter.extractFrames(input, targetPx, startMs = trimStartMs)
+            VideoStickerConverter.extractFrames(input, targetPx, startMs = trimStartMs, crop = crop)
                 ?.firstOrNull()?.bitmap
-        else -> BitmapFactory.decodeFile(input.absolutePath)
+        else -> BitmapFactory.decodeFile(input.absolutePath)?.let { BitmapPrep.crop(it, crop) }
     }
 
     private suspend fun framesFor(
@@ -214,6 +222,7 @@ object StickerConversionPipeline {
         type: StickerMediaType,
         targetPx: Int,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): List<TimedFrame>? = when (type) {
         // Lottie takes no offset: a .tgs is authored as a sticker already and
         // is inside the duration limit by construction, so there is nothing to
@@ -223,10 +232,11 @@ object StickerConversionPipeline {
             input,
             targetPx,
             startMs = trimStartMs,
+            crop = crop,
         )
         else -> {
             val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return null
-            listOf(TimedFrame(0L, BitmapPrep.fitSquareWithPadding(bitmap, targetPx)))
+            listOf(TimedFrame(0L, BitmapPrep.cropAndFitSquare(bitmap, targetPx, crop)))
         }
     }
 

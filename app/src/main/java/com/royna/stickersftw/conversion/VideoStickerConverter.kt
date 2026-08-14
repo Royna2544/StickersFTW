@@ -8,6 +8,7 @@ import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
+import com.royna.stickersftw.model.MediaCrop
 import java.io.File
 import java.nio.ByteBuffer
 import kotlin.coroutines.coroutineContext
@@ -58,19 +59,44 @@ object VideoStickerConverter {
         /** Where in the clip the sticker starts. A sticker is at most
          * [SizeBudget.MAX_TOTAL_DURATION_MS] long, so anything longer than
          * that has to give up most of itself -- and the part worth keeping is
-        * almost never the opening seconds, which is all this used to take. */
+         * almost never the opening seconds, which is all this used to take. */
         startMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): List<TimedFrame>? {
         WebmAlphaDemuxer.readAlphaTrack(videoFile)?.let { track ->
             // A failure here falls through rather than giving up: an opaque
             // sticker beats no sticker, and the extractor path can still
             // decode the colour bitstream on its own.
-            extractFramesWithAlpha(track, targetPx, maxDurationMs, startMs)?.let {
+            extractFramesWithAlpha(track, targetPx, maxDurationMs, startMs, crop, MAX_FRAMES)?.let {
                 return rebased(it)
             }
         }
-        return extractFramesViaExtractor(videoFile, targetPx, maxDurationMs, startMs)
+        return extractFramesViaExtractor(videoFile, targetPx, maxDurationMs, startMs, crop, MAX_FRAMES)
             ?.let { rebased(it) }
+    }
+
+    /** Decodes one unscaled source frame for the crop editor. This uses the
+     * same codec path as conversion, so rotation/aspect and sparse-keyframe
+     * behaviour cannot disagree with the sticker that will be produced. */
+    suspend fun extractPreviewFrame(videoFile: File, startMs: Long = 0L): Bitmap? {
+        WebmAlphaDemuxer.readAlphaTrack(videoFile)?.let { track ->
+            extractFramesWithAlpha(
+                track,
+                targetPx = null,
+                maxDurationMs = SizeBudget.MAX_TOTAL_DURATION_MS,
+                startMs = startMs,
+                crop = null,
+                maxFrames = 1,
+            )?.firstOrNull()?.bitmap?.let { return it }
+        }
+        return extractFramesViaExtractor(
+            videoFile,
+            targetPx = null,
+            maxDurationMs = SizeBudget.MAX_TOTAL_DURATION_MS,
+            startMs = startMs,
+            crop = null,
+            maxFrames = 1,
+        )?.firstOrNull()?.bitmap
     }
 
     /** Shifts the kept frames so the first one sits at zero.
@@ -169,9 +195,11 @@ object VideoStickerConverter {
      * the set without having to decode anything to find out. */
     private suspend fun extractFramesWithAlpha(
         track: WebmAlphaTrack,
-        targetPx: Int,
+        targetPx: Int?,
         maxDurationMs: Long,
         startMs: Long,
+        crop: MediaCrop?,
+        maxFrames: Int,
     ): List<TimedFrame>? {
         if (track.frames.any { it.alpha == null }) return null
 
@@ -188,7 +216,7 @@ object VideoStickerConverter {
             if (frame.presentationTimeUs > endUs) break
             if (!clock.accept(frame.presentationTimeUs - startUs)) continue
             wanted += frame.presentationTimeUs
-            if (wanted.size >= MAX_FRAMES) break
+            if (wanted.size >= maxFrames) break
         }
         if (wanted.isEmpty()) return null
 
@@ -209,10 +237,7 @@ object VideoStickerConverter {
             val bitmap = imageToBitmap(image, alphaPlanes[pts])
             // Rebased so the sticker starts at zero however far in the window
             // begins; WebpAnimationEncoder reads these as frame timings.
-            collected += TimedFrame(
-                (pts - startUs) / 1000,
-                BitmapPrep.fitSquareWithPadding(bitmap, targetPx),
-            )
+            collected += TimedFrame((pts - startUs) / 1000, prepareFrame(bitmap, targetPx, crop))
         }
         if (!colourDecoded) return null
 
@@ -282,9 +307,11 @@ object VideoStickerConverter {
 
     private suspend fun extractFramesViaExtractor(
         videoFile: File,
-        targetPx: Int,
+        targetPx: Int?,
         maxDurationMs: Long,
         startMs: Long,
+        crop: MediaCrop?,
+        maxFrames: Int,
     ): List<TimedFrame>? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -329,7 +356,7 @@ object VideoStickerConverter {
             var firstPts = -1L
             var lastPts = -1L
 
-            while (!outputDone && collected.size < MAX_FRAMES) {
+            while (!outputDone && collected.size < maxFrames) {
                 coroutineContext.ensureActive()
 
                 if (!inputDone) {
@@ -364,7 +391,7 @@ object VideoStickerConverter {
                             val bitmap = imageToBitmap(image, null)
                             collected += TimedFrame(
                                 (ptsUs - startUs) / 1000,
-                                BitmapPrep.fitSquareWithPadding(bitmap, targetPx),
+                                prepareFrame(bitmap, targetPx, crop),
                             )
                         }
                     }
@@ -397,6 +424,9 @@ object VideoStickerConverter {
             extractor.release()
         }
     }
+
+    private fun prepareFrame(bitmap: Bitmap, targetPx: Int?, crop: MediaCrop?): Bitmap =
+        if (targetPx == null) bitmap else BitmapPrep.cropAndFitSquare(bitmap, targetPx, crop)
 
     /** Picks a decoder for [mime] that will actually accept this frame size.
      *

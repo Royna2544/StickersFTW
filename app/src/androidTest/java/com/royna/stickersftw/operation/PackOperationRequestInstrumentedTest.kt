@@ -2,6 +2,7 @@ package com.royna.stickersftw.operation
 
 import android.content.Intent
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.royna.stickersftw.model.MediaCrop
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 import org.junit.Assert.assertEquals
@@ -11,7 +12,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PackOperationRequestInstrumentedTest {
     @Test
-    fun addStickersRoundTripKeepsTrimStart() {
+    fun addStickersRoundTripKeepsEdits() {
         val request = PackOperationRequest.AddStickers(
             packId = "pack-id",
             packTitle = "Pack",
@@ -22,6 +23,7 @@ class PackOperationRequestInstrumentedTest {
                     PickedMediaKind.Video,
                     emoji = "🎬",
                     trimStartMs = 9_876L,
+                    crop = MediaCrop(0.1f, 0.2f, 0.7f, 0.8f),
                 ),
             ),
         )

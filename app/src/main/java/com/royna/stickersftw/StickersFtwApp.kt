@@ -46,6 +46,7 @@ import com.royna.stickersftw.ui.components.ExpandableActionFab
 import com.royna.stickersftw.ui.components.MixedPackChoiceDialog
 import com.royna.stickersftw.ui.screens.ConversionScreen
 import com.royna.stickersftw.ui.screens.ConvertScreen
+import com.royna.stickersftw.ui.screens.CropMediaScreen
 import com.royna.stickersftw.ui.screens.CreatePackScreen
 import com.royna.stickersftw.ui.screens.CustomStickerPickerScreen
 import com.royna.stickersftw.ui.screens.ImportPackScreen
@@ -144,6 +145,7 @@ fun StickersFtwApp(
     val pendingNavigation by viewModel.pendingNavigation.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
     val trimRequest by viewModel.trimRequest.collectAsStateWithLifecycle()
+    val cropRequest by viewModel.cropRequest.collectAsStateWithLifecycle()
     val mixedPackQuestion by viewModel.mixedPackQuestion.collectAsStateWithLifecycle()
     val busyMessage by viewModel.busyMessage.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -510,6 +512,26 @@ fun StickersFtwApp(
                 total = request.total,
                 onStartChanged = viewModel::setTrimStart,
                 onConfirm = viewModel::confirmTrim,
+                onBack = viewModel::cancelTrim,
+            )
+        }
+    }
+
+    cropRequest?.let { request ->
+        Dialog(
+            onDismissRequest = viewModel::cancelTrim,
+            properties = DialogProperties(
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            CropMediaScreen(
+                previewFrame = request.preview,
+                position = request.position,
+                total = request.total,
+                onConfirm = viewModel::confirmCrop,
+                onKeepFull = viewModel::keepFullImage,
                 onBack = viewModel::cancelTrim,
             )
         }

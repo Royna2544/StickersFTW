@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import com.royna.stickersftw.model.MediaCrop
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,6 +28,7 @@ object TelegramVideoConverter {
         targetPx: Int,
         maxBytes: Int,
         trimStartMs: Long = 0L,
+        crop: MediaCrop? = null,
     ): ConversionOutcome =
         withContext(Dispatchers.Default) {
             val frames = VideoStickerConverter.extractFrames(
@@ -34,6 +36,7 @@ object TelegramVideoConverter {
                 targetPx,
                 SizeBudget.TELEGRAM_MAX_DURATION_MS,
                 startMs = trimStartMs,
+                crop = crop,
             ) ?: return@withContext ConversionOutcome.Failed("Could not decode video frames.")
 
             try {

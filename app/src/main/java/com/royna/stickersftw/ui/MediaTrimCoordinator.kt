@@ -2,11 +2,13 @@ package com.royna.stickersftw.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import com.royna.stickersftw.conversion.SizeBudget
 import com.royna.stickersftw.conversion.VideoStickerConverter
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
+import com.royna.stickersftw.model.MediaCrop
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +27,22 @@ data class TrimRequest(
     val preview: Bitmap?,
 )
 
-/** Runs picked media past the trim screen before it becomes stickers.
+/** What the crop editor is currently asking about. */
+data class CropRequest(
+    val position: Int,
+    val total: Int,
+    val preview: Bitmap?,
+    val crop: MediaCrop?,
+)
+
+/** Runs picked media past the trim and crop screens before it becomes stickers.
  *
+ * Two jobs, both of which have to happen before anything can be previewed.
  * First the clip is copied out of its content:// URI into a file this app
  * owns, because every decode below needs a real path and the URI's grant is
  * not guaranteed to outlive the picker. Then anything longer than a sticker
- * is allowed to be gets queued for the user to place its window.
+ * is allowed to be gets queued for the user to place its window. Finally,
+ * every usable image/video gets a non-destructive crop choice.
  *
  * Kept out of the ViewModel because it is a small state machine in its own
  * right, and because the alternative was a fifth pile of nullable fields in
@@ -39,16 +51,19 @@ data class TrimRequest(
 class MediaTrimCoordinator(private val context: Context) {
     private val _request = MutableStateFlow<TrimRequest?>(null)
     val request: StateFlow<TrimRequest?> = _request.asStateFlow()
+    private val _cropRequest = MutableStateFlow<CropRequest?>(null)
+    val cropRequest: StateFlow<CropRequest?> = _cropRequest.asStateFlow()
 
     private var queue = emptyList<Int>()
     private var queueIndex = 0
+    private var cropIndex = 0
     private var items = emptyList<PickedMediaItem>()
     private var onResolved: ((List<PickedMediaItem>) -> Unit)? = null
     /** Invalidates a preview decode whenever the active clip changes. */
     private var requestToken = 0L
 
-    /** Starts the edit flow and calls [onReady] once every requested trim
-     * decision has been made. */
+    /** Starts the edit flow and calls [onReady] once every requested trim and
+     * crop decision has been made. */
     suspend fun begin(
         picked: List<PickedMediaItem>,
         onReady: (List<PickedMediaItem>) -> Unit,
@@ -68,17 +83,17 @@ class MediaTrimCoordinator(private val context: Context) {
         }
 
         items = materialised
+        onResolved = onReady
         queue = durations.indices.filter { index ->
             (durations[index] ?: 0L) > SizeBudget.MAX_TOTAL_DURATION_MS
         }
         queueIndex = 0
 
         if (queue.isEmpty()) {
-            onReady(materialised)
-            return false
+            beginCropping()
+            return true
         }
 
-        onResolved = onReady
         durationsByIndex = durations
         showCurrent()
         return true
@@ -113,11 +128,24 @@ class MediaTrimCoordinator(private val context: Context) {
         if (queueIndex < queue.size) {
             showCurrent()
         } else {
-            val resolved = items
-            val callback = onResolved
-            clear()
-            callback?.invoke(resolved)
+            beginCropping()
         }
+    }
+
+    suspend fun confirmCrop(crop: MediaCrop) {
+        if (_cropRequest.value == null || cropIndex !in items.indices) return
+        items = items.toMutableList().also { list ->
+            list[cropIndex] = list[cropIndex].copy(crop = crop)
+        }
+        advanceCrop()
+    }
+
+    suspend fun keepFullImage() {
+        if (_cropRequest.value == null || cropIndex !in items.indices) return
+        items = items.toMutableList().also { list ->
+            list[cropIndex] = list[cropIndex].copy(crop = null)
+        }
+        advanceCrop()
     }
 
     fun cancel() {
@@ -127,9 +155,11 @@ class MediaTrimCoordinator(private val context: Context) {
     private fun clear() {
         requestToken++
         _request.value = null
+        _cropRequest.value = null
         onResolved = null
         queue = emptyList()
         queueIndex = 0
+        cropIndex = 0
         items = emptyList()
         durationsByIndex = emptyList()
     }
@@ -153,6 +183,49 @@ class MediaTrimCoordinator(private val context: Context) {
         }
     }
 
+    private suspend fun beginCropping() {
+        requestToken++
+        _request.value = null
+        cropIndex = 0
+        showCropCurrent()
+    }
+
+    private suspend fun advanceCrop() {
+        cropIndex++
+        showCropCurrent()
+    }
+
+    private suspend fun showCropCurrent() {
+        // A corrupt or unsupported item should still reach conversion, where
+        // the existing per-sticker error handling can explain it. It simply
+        // cannot offer a meaningful crop editor preview here.
+        while (cropIndex < items.size) {
+            val token = ++requestToken
+            val item = items[cropIndex]
+            _cropRequest.value = CropRequest(
+                position = cropIndex + 1,
+                total = items.size,
+                preview = null,
+                crop = item.crop,
+            )
+            val preview = cropPreview(item)
+            if (requestToken != token) return
+            if (preview != null) {
+                _cropRequest.value = _cropRequest.value?.copy(preview = preview)
+                return
+            }
+            cropIndex++
+        }
+        finish()
+    }
+
+    private fun finish() {
+        val resolved = items
+        val callback = onResolved
+        clear()
+        callback?.invoke(resolved)
+    }
+
     private suspend fun previewFrame(item: PickedMediaItem, startMs: Long): Bitmap? {
         val file = fileOf(item) ?: return null
         // Asked for over the sticker's own window rather than a short one, so
@@ -174,6 +247,26 @@ class MediaTrimCoordinator(private val context: Context) {
                 )
                 ?.firstOrNull()
                 ?.bitmap
+        }
+    }
+
+    private suspend fun cropPreview(item: PickedMediaItem): Bitmap? {
+        val file = fileOf(item) ?: return null
+        return withContext(Dispatchers.Default) {
+            if (item.kind == PickedMediaKind.Video) {
+                VideoStickerConverter.extractPreviewFrame(file, item.trimStartMs)
+            } else {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.absolutePath, bounds)
+                var sample = 1
+                while (maxOf(bounds.outWidth / sample, bounds.outHeight / sample) > MAX_PREVIEW_SIDE) {
+                    sample *= 2
+                }
+                BitmapFactory.decodeFile(
+                    file.absolutePath,
+                    BitmapFactory.Options().apply { inSampleSize = sample },
+                )
+            }
         }
     }
 
@@ -212,5 +305,6 @@ class MediaTrimCoordinator(private val context: Context) {
 
     private companion object {
         const val DIRECTORY = "picked"
+        const val MAX_PREVIEW_SIDE = 1_536
     }
 }

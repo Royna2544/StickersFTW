@@ -576,13 +576,14 @@ class AppViewModel(
         )
     }
 
-    // ---- Preparing picked media (trim) --------------------------------
+    // ---- Preparing picked media (trim + crop) -------------------------
 
     private val trimCoordinator = MediaTrimCoordinator(application)
     val trimRequest: StateFlow<TrimRequest?> = trimCoordinator.request
+    val cropRequest: StateFlow<CropRequest?> = trimCoordinator.cropRequest
 
-    /** Materialises picked media and lets the user place the sticker window
-     * for long clips before handing the edited items to [onReady]. */
+    /** Materialises picked media, trims long clips, then offers a
+     * non-destructive crop before handing the edited items to [onReady]. */
     fun prepareMedia(items: List<PickedMediaItem>, onReady: (List<PickedMediaItem>) -> Unit) {
         viewModelScope.launch { trimCoordinator.begin(items, onReady) }
     }
@@ -596,6 +597,14 @@ class AppViewModel(
     }
 
     fun cancelTrim() = trimCoordinator.cancel()
+
+    fun confirmCrop(crop: com.royna.stickersftw.model.MediaCrop) {
+        viewModelScope.launch { trimCoordinator.confirmCrop(crop) }
+    }
+
+    fun keepFullImage() {
+        viewModelScope.launch { trimCoordinator.keepFullImage() }
+    }
 
     fun disableUpdatesForPack(packId: String) {
         viewModelScope.launch { packRepository.setUpdateCheckEnabled(packId, false) }

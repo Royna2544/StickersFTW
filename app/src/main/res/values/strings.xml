@@ -300,6 +300,12 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="trim_title_of">Choose the moment (%1$d of %2$d)</string>
     <string name="trim_body">A sticker can be %1$s long and this clip runs %2$s, so pick where it should start.</string>
     <string name="trim_confirm">Use this part</string>
+    <string name="crop_title">Crop sticker</string>
+    <string name="crop_title_of">Crop sticker (%1$d of %2$d)</string>
+    <string name="crop_body">Pinch or use the slider to zoom, then drag to frame the sticker.</string>
+    <string name="crop_zoom">Zoom</string>
+    <string name="crop_keep_full">Keep full image</string>
+    <string name="crop_confirm">Use crop</string>
     <string name="share_target_title">Add to a pack</string>
     <string name="share_target_subtitle">Choose where this should go.</string>
     <string name="share_target_new_pack">Create a new pack</string>

@@ -1,6 +1,7 @@
 package com.royna.stickersftw.operation
 
 import android.content.Intent
+import com.royna.stickersftw.model.MediaCrop
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 
@@ -78,6 +79,11 @@ sealed class PackOperationRequest {
                 putExtra(KEY_ITEM_EMOJIS, items.map { it.emoji }.toTypedArray())
                 putExtra(KEY_ITEM_IS_VIDEO, items.map { it.kind == PickedMediaKind.Video }.toBooleanArray())
                 putExtra(KEY_ITEM_TRIM_STARTS, items.map { it.trimStartMs }.toLongArray())
+                putExtra(KEY_ITEM_HAS_CROP, items.map { it.crop != null }.toBooleanArray())
+                putExtra(KEY_ITEM_CROP_LEFTS, items.map { it.crop?.left ?: 0f }.toFloatArray())
+                putExtra(KEY_ITEM_CROP_TOPS, items.map { it.crop?.top ?: 0f }.toFloatArray())
+                putExtra(KEY_ITEM_CROP_RIGHTS, items.map { it.crop?.right ?: 1f }.toFloatArray())
+                putExtra(KEY_ITEM_CROP_BOTTOMS, items.map { it.crop?.bottom ?: 1f }.toFloatArray())
             }
         }
     }
@@ -95,6 +101,11 @@ sealed class PackOperationRequest {
         private const val KEY_ITEM_EMOJIS = "itemEmojis"
         private const val KEY_ITEM_IS_VIDEO = "itemIsVideo"
         private const val KEY_ITEM_TRIM_STARTS = "itemTrimStarts"
+        private const val KEY_ITEM_HAS_CROP = "itemHasCrop"
+        private const val KEY_ITEM_CROP_LEFTS = "itemCropLefts"
+        private const val KEY_ITEM_CROP_TOPS = "itemCropTops"
+        private const val KEY_ITEM_CROP_RIGHTS = "itemCropRights"
+        private const val KEY_ITEM_CROP_BOTTOMS = "itemCropBottoms"
 
         private const val KIND_IMPORT = "import"
         private const val KIND_IMPORT_CUSTOM = "importCustom"
@@ -130,6 +141,11 @@ sealed class PackOperationRequest {
                     val emojis = intent.getStringArrayExtra(KEY_ITEM_EMOJIS).orEmpty()
                     val isVideo = intent.getBooleanArrayExtra(KEY_ITEM_IS_VIDEO) ?: BooleanArray(uris.size)
                     val trimStarts = intent.getLongArrayExtra(KEY_ITEM_TRIM_STARTS) ?: LongArray(uris.size)
+                    val hasCrop = intent.getBooleanArrayExtra(KEY_ITEM_HAS_CROP) ?: BooleanArray(uris.size)
+                    val cropLefts = intent.getFloatArrayExtra(KEY_ITEM_CROP_LEFTS) ?: FloatArray(uris.size)
+                    val cropTops = intent.getFloatArrayExtra(KEY_ITEM_CROP_TOPS) ?: FloatArray(uris.size)
+                    val cropRights = intent.getFloatArrayExtra(KEY_ITEM_CROP_RIGHTS) ?: FloatArray(uris.size) { 1f }
+                    val cropBottoms = intent.getFloatArrayExtra(KEY_ITEM_CROP_BOTTOMS) ?: FloatArray(uris.size) { 1f }
                     AddStickers(
                         packId,
                         packTitle,
@@ -143,6 +159,16 @@ sealed class PackOperationRequest {
                                 },
                                 emoji = emojis.getOrElse(index) { "🙂" },
                                 trimStartMs = trimStarts.getOrElse(index) { 0L },
+                                crop = if (hasCrop.getOrElse(index) { false }) {
+                                    MediaCrop(
+                                        left = cropLefts.getOrElse(index) { 0f },
+                                        top = cropTops.getOrElse(index) { 0f },
+                                        right = cropRights.getOrElse(index) { 1f },
+                                        bottom = cropBottoms.getOrElse(index) { 1f },
+                                    )
+                                } else {
+                                    null
+                                },
                             )
                         },
                     )

@@ -3,6 +3,8 @@ package com.royna.stickersftw.conversion
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.core.graphics.createBitmap
+import com.royna.stickersftw.model.MediaCrop
+import kotlin.math.roundToInt
 
 /** Shared bitmap sizing helpers. Deliberately never calls Bitmap.recycle():
  * this pipeline converts one sticker at a time (bounding peak memory to
@@ -10,6 +12,28 @@ import androidx.core.graphics.createBitmap
  * that might still be referenced elsewhere is a hard-crash risk not worth
  * taking for a transient decode buffer the GC will reclaim shortly anyway. */
 object BitmapPrep {
+    /** Applies a source-relative crop, defensively clamping values restored
+     * from storage or an operation Intent. Invalid rectangles keep the source
+     * instead of turning one bad edit into a failed sticker conversion. */
+    fun crop(source: Bitmap, crop: MediaCrop?): Bitmap {
+        crop ?: return source
+        val left = crop.left.coerceIn(0f, 1f)
+        val top = crop.top.coerceIn(0f, 1f)
+        val right = crop.right.coerceIn(0f, 1f)
+        val bottom = crop.bottom.coerceIn(0f, 1f)
+        if (right <= left || bottom <= top) return source
+
+        val x = (left * source.width).roundToInt().coerceIn(0, source.width - 1)
+        val y = (top * source.height).roundToInt().coerceIn(0, source.height - 1)
+        val rightPx = (right * source.width).roundToInt().coerceIn(x + 1, source.width)
+        val bottomPx = (bottom * source.height).roundToInt().coerceIn(y + 1, source.height)
+        if (x == 0 && y == 0 && rightPx == source.width && bottomPx == source.height) return source
+        return Bitmap.createBitmap(source, x, y, rightPx - x, bottomPx - y)
+    }
+
+    fun cropAndFitSquare(source: Bitmap, targetPx: Int, crop: MediaCrop?): Bitmap =
+        fitSquareWithPadding(crop(source, crop), targetPx)
+
     /** Scales to fit a targetPx square, preserving aspect, and centres the
      * result on a transparent canvas.
      *

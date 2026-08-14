@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 5, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -53,6 +53,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds a normalized crop rectangle for locally picked media. Null is
+         * the old behaviour: preserve the whole source and pad to square. */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE stickers ADD COLUMN cropLeft REAL")
+                connection.execSQL("ALTER TABLE stickers ADD COLUMN cropTop REAL")
+                connection.execSQL("ALTER TABLE stickers ADD COLUMN cropRight REAL")
+                connection.execSQL("ALTER TABLE stickers ADD COLUMN cropBottom REAL")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -60,7 +71,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stickers_ftw.db",
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // Still the fallback for the one earlier bump that never
                     // got a migration written; 2 -> 3 now takes the path above
                     // instead of dropping everything.

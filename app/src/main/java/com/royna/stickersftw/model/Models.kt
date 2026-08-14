@@ -179,6 +179,20 @@ enum class PickedMediaKind {
     Video,
 }
 
+/** A non-destructive crop in source-relative coordinates.
+ *
+ * Keeping this normalized rather than in preview pixels means the same crop
+ * applies to a downsampled editor preview, a full-resolution photo, and every
+ * decoded frame of a video. The editor produces a square in source pixels;
+ * separate edges make the representation resilient to rounding and let the
+ * conversion path validate data that came through storage or an Intent. */
+data class MediaCrop(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
 data class PickedMediaItem(
     val uri: String,
     val kind: PickedMediaKind,
@@ -187,4 +201,7 @@ data class PickedMediaItem(
      * sticker is allowed to be. Zero for images and for clips that already
      * fit. */
     val trimStartMs: Long = 0L,
+    /** Null keeps the entire source and pads its shorter side. Non-null crops
+     * before the normal sticker sizing step. */
+    val crop: MediaCrop? = null,
 )

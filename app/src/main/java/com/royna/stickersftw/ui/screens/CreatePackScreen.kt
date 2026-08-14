@@ -63,7 +63,7 @@ import com.royna.stickersftw.ui.theme.appButtonColors
 fun CreatePackScreen(
     onBack: () -> Unit,
     botUsername: String? = null,
-    /** Runs newly picked media past the trim step before it lands in the
+    /** Runs newly picked media past the trim/crop steps before it lands in the
      * list, so those edits happen once rather than at publish time. */
     onPrepareMedia: (List<PickedMediaItem>, (List<PickedMediaItem>) -> Unit) -> Unit =
         { items, ready -> ready(items) },

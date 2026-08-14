@@ -3,6 +3,7 @@ package com.royna.stickersftw.conversion
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import com.royna.stickersftw.model.MediaCrop
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -22,10 +23,11 @@ object StaticStickerConverter {
         output: File,
         targetLongSidePx: Int,
         maxBytes: Int,
+        crop: MediaCrop? = null,
     ): ConversionOutcome {
         val source = BitmapFactory.decodeFile(input.absolutePath)
             ?: return ConversionOutcome.Failed("Could not decode image.")
-        val scaled = BitmapPrep.aspectScale(source, targetLongSidePx)
+        val scaled = BitmapPrep.aspectScale(BitmapPrep.crop(source, crop), targetLongSidePx)
         return compressWithBudget(scaled, output, maxBytes)
     }
 

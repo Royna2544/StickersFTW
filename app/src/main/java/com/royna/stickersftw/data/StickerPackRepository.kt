@@ -26,6 +26,7 @@ import com.royna.stickersftw.data.model.StickerEntry
 import com.royna.stickersftw.data.model.PreviewResult
 import com.royna.stickersftw.data.model.PreviewSticker
 import com.royna.stickersftw.model.ConversionBias
+import com.royna.stickersftw.model.MediaCrop
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.PickedMediaItem
@@ -760,6 +761,10 @@ class StickerPackRepository(private val appContext: Context) {
                     conversionStatus = "Pending",
                     conversionError = null,
                     trimStartMs = item.trimStartMs,
+                    cropLeft = item.crop?.left,
+                    cropTop = item.crop?.top,
+                    cropRight = item.crop?.right,
+                    cropBottom = item.crop?.bottom,
                 ),
             )
         }
@@ -798,6 +803,7 @@ class StickerPackRepository(private val appContext: Context) {
                     forceAnimated = pack.isAnimatedPack,
                     bias = bias,
                     trimStartMs = item.trimStartMs,
+                    crop = item.crop,
                 )
             ) {
                 is StickerConvertResult.Success -> {
@@ -891,6 +897,10 @@ class StickerPackRepository(private val appContext: Context) {
                     conversionStatus = "Pending",
                     conversionError = null,
                     trimStartMs = item.trimStartMs,
+                    cropLeft = item.crop?.left,
+                    cropTop = item.crop?.top,
+                    cropRight = item.crop?.right,
+                    cropBottom = item.crop?.bottom,
                 )
             },
         )
@@ -974,6 +984,7 @@ class StickerPackRepository(private val appContext: Context) {
                         type,
                         bias,
                         trimStartMs = sticker.trimStartMs,
+                        crop = sticker.mediaCrop(),
                     )
                 ) {
                     is StickerConvertResult.Success -> {
@@ -986,6 +997,7 @@ class StickerPackRepository(private val appContext: Context) {
                                 output,
                                 result.isAnimated,
                                 sticker.trimStartMs,
+                                sticker.mediaCrop(),
                             ),
                         )
                         if (firstConvertedFile == null) {
@@ -1055,6 +1067,7 @@ class StickerPackRepository(private val appContext: Context) {
                                 telegramOutput,
                                 sticker.isVideo,
                                 sticker.trimStartMs,
+                                sticker.mediaCrop(),
                             )
                         ) {
                             is StickerConvertResult.Failed -> {
@@ -1127,6 +1140,7 @@ class StickerPackRepository(private val appContext: Context) {
                         firstConvertedType,
                         trayFile,
                         firstConvertedSticker?.trimStartMs ?: 0L,
+                        firstConvertedSticker?.mediaCrop(),
                     ) is StickerConvertResult.Success
                 finalizePackReady(packId, packIsAnimated, trayFile.absolutePath.takeIf { trayReady }, telegramPushWarning, bias)
             }
@@ -1443,7 +1457,16 @@ class StickerPackRepository(private val appContext: Context) {
         val output: File,
         val isAnimated: Boolean,
         val trimStartMs: Long = 0L,
+        val crop: MediaCrop? = null,
     )
+
+    private fun StickerEntity.mediaCrop(): MediaCrop? {
+        val left = cropLeft ?: return null
+        val top = cropTop ?: return null
+        val right = cropRight ?: return null
+        val bottom = cropBottom ?: return null
+        return MediaCrop(left, top, right, bottom)
+    }
 
     /** WhatsApp's own validator rejects a whole pack if even one sticker's
      * WebP frame count disagrees with the pack-level animated/static flag
@@ -1468,6 +1491,7 @@ class StickerPackRepository(private val appContext: Context) {
                 forceAnimated = packIsAnimated,
                 bias = bias,
                 trimStartMs = sticker.trimStartMs,
+                crop = sticker.crop,
             )
         }
     }
