@@ -257,4 +257,9 @@
         <item quantity="many">%1$d stickers n’ont pas pu être convertis et ont été exclus du pack.</item>
         <item quantity="other">%1$d stickers n’ont pas pu être convertis et ont été exclus du pack.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="one">Ce pack peut encore accueillir %1$d sticker.</item>
+        <item quantity="many">Ce pack peut encore accueillir %1$d stickers.</item>
+        <item quantity="other">Ce pack peut encore accueillir %1$d stickers.</item>
+    </plurals>
 </resources>

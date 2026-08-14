@@ -300,4 +300,8 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
         <item quantity="one">%1$d sticker could not be converted and was left out of the pack.</item>
         <item quantity="other">%1$d stickers could not be converted and were left out of the pack.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="one">This pack has room for %1$d more sticker.</item>
+        <item quantity="other">This pack has room for %1$d more stickers.</item>
+    </plurals>
 </resources>

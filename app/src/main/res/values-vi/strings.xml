@@ -249,4 +249,7 @@
     <plurals name="warn_stickers_dropped">
         <item quantity="other">Không thể chuyển đổi %1$d nhãn dán nên chúng không có trong gói.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="other">Gói này còn chỗ cho %1$d nhãn dán nữa.</item>
+    </plurals>
 </resources>

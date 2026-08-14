@@ -249,4 +249,7 @@
     <plurals name="warn_stickers_dropped">
         <item quantity="other">스티커 %1$d개를 변환하지 못해 팩에서 제외했습니다.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="other">이 팩에는 스티커 %1$d개를 더 넣을 수 있습니다.</item>
+    </plurals>
 </resources>

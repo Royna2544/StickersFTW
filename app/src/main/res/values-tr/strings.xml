@@ -256,4 +256,8 @@
         <item quantity="one">%1$d çıkartma dönüştürülemedi ve pakete eklenmedi.</item>
         <item quantity="other">%1$d çıkartma dönüştürülemedi ve pakete eklenmedi.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="one">Bu pakete %1$d çıkartma daha eklenebilir.</item>
+        <item quantity="other">Bu pakete %1$d çıkartma daha eklenebilir.</item>
+    </plurals>
 </resources>

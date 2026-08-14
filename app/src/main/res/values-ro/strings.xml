@@ -263,4 +263,9 @@
         <item quantity="few">%1$d stickere nu au putut fi convertite și au rămas în afara pachetului.</item>
         <item quantity="other">%1$d de stickere nu au putut fi convertite și au rămas în afara pachetului.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="one">Acest pachet mai are loc pentru %1$d sticker.</item>
+        <item quantity="few">Acest pachet mai are loc pentru %1$d stickere.</item>
+        <item quantity="other">Acest pachet mai are loc pentru %1$d de stickere.</item>
+    </plurals>
 </resources>

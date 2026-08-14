@@ -284,4 +284,12 @@
         <item quantity="many">تعذّر تحويل %1$d ملصقًا فلم تُضف إلى الحزمة.</item>
         <item quantity="other">تعذّر تحويل %1$d ملصق فلم تُضف إلى الحزمة.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="zero">لا توجد مساحة لمزيد من الملصقات في هذه الحزمة.</item>
+        <item quantity="one">تتسع هذه الحزمة لملصق واحد إضافي.</item>
+        <item quantity="two">تتسع هذه الحزمة لملصقين إضافيين.</item>
+        <item quantity="few">تتسع هذه الحزمة لـ %1$d ملصقات إضافية.</item>
+        <item quantity="many">تتسع هذه الحزمة لـ %1$d ملصقًا إضافيًا.</item>
+        <item quantity="other">تتسع هذه الحزمة لـ %1$d ملصق إضافي.</item>
+    </plurals>
 </resources>

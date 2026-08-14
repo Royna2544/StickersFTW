@@ -256,4 +256,8 @@
         <item quantity="one">%1$d स्टिकर कन्वर्ट नहीं हो सका, इसलिए उसे पैक में शामिल नहीं किया गया।</item>
         <item quantity="other">%1$d स्टिकर कन्वर्ट नहीं हो सके, इसलिए उन्हें पैक में शामिल नहीं किया गया।</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="one">इस पैक में %1$d और स्टिकर की जगह है।</item>
+        <item quantity="other">इस पैक में %1$d और स्टिकर की जगह है।</item>
+    </plurals>
 </resources>

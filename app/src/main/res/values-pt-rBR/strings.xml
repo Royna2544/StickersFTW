@@ -257,4 +257,9 @@
         <item quantity="many">%1$d figurinhas não puderam ser convertidas e ficaram de fora do pacote.</item>
         <item quantity="other">%1$d figurinhas não puderam ser convertidas e ficaram de fora do pacote.</item>
     </plurals>
+    <plurals name="err_pack_capacity">
+        <item quantity="one">Este pacote ainda cabe %1$d figurinha.</item>
+        <item quantity="many">Este pacote ainda cabe %1$d figurinhas.</item>
+        <item quantity="other">Este pacote ainda cabe %1$d figurinhas.</item>
+    </plurals>
 </resources>
