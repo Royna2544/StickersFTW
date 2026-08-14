@@ -1,5 +1,6 @@
 package com.royna.stickersftw.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,10 +51,13 @@ import com.royna.stickersftw.ui.components.PageHeader
 fun ShareTargetScreen(
     packs: List<StickerPack>,
     sharedCount: Int,
+    enabled: Boolean = true,
     onCreateNew: () -> Unit,
     onAddToPack: (String) -> Unit,
     onBack: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
+
     val candidates = packs.filter { pack ->
         pack.status == PackStatus.Ready &&
             SizeBudget.MAX_STICKERS - pack.stickerCount >= sharedCount
@@ -93,7 +97,7 @@ fun ShareTargetScreen(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = onCreateNew),
+                    .clickable(enabled = enabled, onClick = onCreateNew),
             ) {
                 Row(
                     modifier = Modifier.padding(18.dp),
@@ -146,7 +150,7 @@ fun ShareTargetScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onAddToPack(pack.id) },
+                                .clickable(enabled = enabled) { onAddToPack(pack.id) },
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(

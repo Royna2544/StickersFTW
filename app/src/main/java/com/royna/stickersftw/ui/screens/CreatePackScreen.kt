@@ -1,5 +1,6 @@
 package com.royna.stickersftw.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -39,11 +40,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -56,17 +59,67 @@ import com.royna.stickersftw.R
 import com.royna.stickersftw.data.ShortNameValidator
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
+import com.royna.stickersftw.ui.CreatePackSubmissionResult
 import com.royna.stickersftw.ui.theme.appButtonColors
+
+/** Tracks who owns Create's prepared files across Compose disposal and the
+ * asynchronous create/start boundary. */
+internal class CreateMediaOwnership {
+    private var disposed = false
+    private var submissionPending = false
+    private var handedOff = false
+
+    fun canRetainPreparedMedia(): Boolean = !disposed && !submissionPending && !handedOff
+
+    fun beginSubmission() {
+        submissionPending = true
+    }
+
+    fun rejectSynchronously() {
+        submissionPending = false
+    }
+
+    fun submissionStarted() {
+        submissionPending = false
+        handedOff = true
+    }
+
+    /** Returns true when the screen is already gone and its retained media
+     * therefore has no remaining retry owner. */
+    fun submissionFailedShouldDiscard(): Boolean {
+        submissionPending = false
+        return disposed
+    }
+
+    /** Returns true when the screen still owns media that must be reclaimed
+     * now. Pending submissions defer this decision until their result. */
+    fun disposeShouldDiscard(): Boolean {
+        disposed = true
+        return !submissionPending && !handedOff
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreatePackScreen(
     onBack: () -> Unit,
+    enabled: Boolean = true,
     botUsername: String? = null,
     /** Runs newly picked media past the trim/crop steps before it lands in the
      * list, so those edits happen once rather than at publish time. */
     onPrepareMedia: (List<PickedMediaItem>, (List<PickedMediaItem>) -> Unit) -> Unit =
         { items, ready -> ready(items) },
+    /** Retained alternative used by the app host. It starts preparation in
+     * the ViewModel; [preparedMediaGeneration] delivers the result back to
+     * whichever Create composition is current after rotation. */
+    onStartRetainedMediaPreparation: ((List<PickedMediaItem>) -> Boolean)? = null,
+    preparedMediaGeneration: Long? = null,
+    preparedMediaDeliveryRevision: Long = 0L,
+    preparedMediaItems: List<PickedMediaItem> = emptyList(),
+    onClaimPreparedMedia: (Long) -> Boolean = { true },
+    onFinishPreparedMedia: (Long, Boolean) -> Unit = { _, _ -> },
+    onCancelMediaPreparation: () -> Unit = {},
+    onDiscardMedia: (List<PickedMediaItem>) -> Unit = {},
     /** Media the screen opens with, when it was reached from a share rather
      * than from the Create button. Seeded once; the user can still add to or
      * remove from it like anything they picked here themselves. */
@@ -77,7 +130,8 @@ fun CreatePackScreen(
         shortName: String,
         pushToTelegram: Boolean,
         addToWhatsapp: Boolean,
-    ) -> Unit,
+        onResult: (CreatePackSubmissionResult) -> Unit,
+    ) -> Boolean,
 ) {
     val context = LocalContext.current
     val mediaItems = remember { mutableStateListOf<PickedMediaItem>() }
@@ -85,13 +139,70 @@ fun CreatePackScreen(
     var shortName by rememberSaveable { mutableStateOf("") }
     var pushToTelegram by rememberSaveable { mutableStateOf(true) }
     var addToWhatsapp by rememberSaveable { mutableStateOf(true) }
+    var submissionAccepted by remember { mutableStateOf(false) }
+    val mediaOwnership = remember { CreateMediaOwnership() }
+    val currentCancelPreparation by rememberUpdatedState(onCancelMediaPreparation)
+    val currentDiscardMedia by rememberUpdatedState(onDiscardMedia)
+    val interactionEnabled = enabled && !submissionAccepted
+
+    fun retainOrDiscard(prepared: List<PickedMediaItem>) {
+        if (mediaOwnership.canRetainPreparedMedia()) {
+            mediaItems.addAll(prepared)
+        } else {
+            currentDiscardMedia(prepared)
+        }
+    }
+
+    fun startPreparation(items: List<PickedMediaItem>) {
+        val retainedStarter = onStartRetainedMediaPreparation
+        if (retainedStarter != null) {
+            retainedStarter(items)
+        } else {
+            onPrepareMedia(items, ::retainOrDiscard)
+        }
+    }
+
+    BackHandler {
+        if (!submissionAccepted) {
+            currentCancelPreparation()
+            onBack()
+        }
+    }
+
+    DisposableEffect(mediaOwnership) {
+        onDispose {
+            if (mediaOwnership.disposeShouldDiscard()) {
+                currentDiscardMedia(mediaItems.toList())
+            }
+        }
+    }
+
+    LaunchedEffect(preparedMediaGeneration, preparedMediaDeliveryRevision) {
+        val generation = preparedMediaGeneration ?: return@LaunchedEffect
+        if (!onClaimPreparedMedia(generation)) return@LaunchedEffect
+        var transferred = false
+        try {
+            if (mediaOwnership.canRetainPreparedMedia()) {
+                mediaItems.addAll(preparedMediaItems)
+                transferred = true
+            }
+        } finally {
+            // `true` transfers the prepared files into this screen's existing
+            // ownership/disposal path; `false` makes the ViewModel reclaim
+            // them because this composition was already abandoned.
+            onFinishPreparedMedia(generation, transferred)
+        }
+    }
 
     // Shared media reaches this screen through "Create a new pack", not the
     // picker callback below. Run that initial batch through the same edit and
     // URI-materialisation steps before it appears in the editable list.
     LaunchedEffect(Unit) {
-        if (initialItems.isNotEmpty()) {
-            onPrepareMedia(initialItems) { mediaItems.addAll(it) }
+        // On recreation a completed retained request can already be waiting
+        // for the effect above. Do not let initial-media startup race it and
+        // begin a duplicate request after that effect acknowledges the first.
+        if (initialItems.isNotEmpty() && preparedMediaGeneration == null) {
+            startPreparation(initialItems)
         }
     }
 
@@ -103,7 +214,9 @@ fun CreatePackScreen(
             val kind = if (mimeType?.startsWith("video/") == true) PickedMediaKind.Video else PickedMediaKind.Image
             PickedMediaItem(uri = uri.toString(), kind = kind)
         }
-        if (picked.isNotEmpty()) onPrepareMedia(picked) { mediaItems.addAll(it) }
+        if (picked.isNotEmpty() && interactionEnabled) {
+            startPreparation(picked)
+        }
     }
 
     val shortNameResult = if (shortName.isBlank()) null else ShortNameValidator.validate(shortName, botUsername)
@@ -122,7 +235,15 @@ fun CreatePackScreen(
             TopAppBar(
                 title = { Text(stringResource(R.string.create_pack_label)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = {
+                            if (!submissionAccepted) {
+                                currentCancelPreparation()
+                                onBack()
+                            }
+                        },
+                        enabled = !submissionAccepted,
+                    ) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
@@ -145,10 +266,13 @@ fun CreatePackScreen(
 
             OutlinedButton(
                 onClick = {
-                    pickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
-                    )
+                    if (interactionEnabled) {
+                        pickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                        )
+                    }
                 },
+                enabled = interactionEnabled,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null)
@@ -193,13 +317,24 @@ fun CreatePackScreen(
                                 Spacer(Modifier.width(12.dp))
                                 OutlinedTextField(
                                     value = item.emoji,
-                                    onValueChange = { mediaItems[index] = item.copy(emoji = it) },
+                                    onValueChange = {
+                                        if (interactionEnabled) mediaItems[index] = item.copy(emoji = it)
+                                    },
                                     modifier = Modifier.width(90.dp),
                                     label = { Text(stringResource(R.string.create_pack_emoji_label)) },
+                                    enabled = interactionEnabled,
                                     singleLine = true,
                                 )
                                 Spacer(Modifier.weight(1f))
-                                IconButton(onClick = { mediaItems.removeAt(index) }) {
+                                IconButton(
+                                    onClick = {
+                                        if (interactionEnabled) {
+                                            val removed = mediaItems.removeAt(index)
+                                            currentDiscardMedia(listOf(removed))
+                                        }
+                                    },
+                                    enabled = interactionEnabled,
+                                ) {
                                     Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.cd_remove))
                                 }
                             }
@@ -210,15 +345,20 @@ fun CreatePackScreen(
 
             OutlinedTextField(
                 value = title,
-                onValueChange = { title = it },
+                onValueChange = { if (interactionEnabled) title = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.create_pack_title_label)) },
+                enabled = interactionEnabled,
                 singleLine = true,
             )
             OutlinedTextField(
                 value = shortName,
-                onValueChange = { shortName = it.filter { c -> c.isLetterOrDigit() || c == '_' } },
-                enabled = pushToTelegram,
+                onValueChange = {
+                    if (interactionEnabled) {
+                        shortName = it.filter { c -> c.isLetterOrDigit() || c == '_' }
+                    }
+                },
+                enabled = pushToTelegram && interactionEnabled,
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(R.string.create_pack_short_name_label)) },
                 supportingText = {
@@ -255,11 +395,19 @@ fun CreatePackScreen(
 
             Text(stringResource(R.string.create_pack_publish_to), style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = pushToTelegram, onCheckedChange = { pushToTelegram = it })
+                Checkbox(
+                    checked = pushToTelegram,
+                    onCheckedChange = { if (interactionEnabled) pushToTelegram = it },
+                    enabled = interactionEnabled,
+                )
                 Text(stringResource(R.string.label_telegram))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = addToWhatsapp, onCheckedChange = { addToWhatsapp = it })
+                Checkbox(
+                    checked = addToWhatsapp,
+                    onCheckedChange = { if (interactionEnabled) addToWhatsapp = it },
+                    enabled = interactionEnabled,
+                )
                 Text(stringResource(R.string.label_whatsapp))
             }
 
@@ -267,15 +415,40 @@ fun CreatePackScreen(
                 onClick = {
                     // Blank when Telegram is unchecked; the repository stores
                     // that as no short name at all rather than an empty one.
-                    onPublish(
-                        mediaItems.toList(),
-                        title.trim(),
-                        normalizedShortName.orEmpty(),
-                        pushToTelegram,
-                        addToWhatsapp,
-                    )
+                    if (interactionEnabled) {
+                        val submittedItems = mediaItems.toList()
+                        mediaOwnership.beginSubmission()
+                        submissionAccepted = true
+                        val accepted = onPublish(
+                            submittedItems,
+                            title.trim(),
+                            normalizedShortName.orEmpty(),
+                            pushToTelegram,
+                            addToWhatsapp,
+                        ) { result ->
+                            when (result) {
+                                is CreatePackSubmissionResult.Started ->
+                                    mediaOwnership.submissionStarted()
+                                CreatePackSubmissionResult.Failed -> {
+                                    if (mediaOwnership.submissionFailedShouldDiscard()) {
+                                        currentDiscardMedia(submittedItems)
+                                    } else {
+                                        submissionAccepted = false
+                                    }
+                                }
+                            }
+                        }
+                        if (accepted) {
+                            // Nothing picked after this snapshot may join the
+                            // submitted pack, so cancel any still-preparing batch.
+                            currentCancelPreparation()
+                        } else {
+                            mediaOwnership.rejectSynchronously()
+                            submissionAccepted = false
+                        }
+                    }
                 },
-                enabled = canPublish,
+                enabled = canPublish && interactionEnabled,
                 colors = appButtonColors(),
                 modifier = Modifier.fillMaxWidth(),
             ) {

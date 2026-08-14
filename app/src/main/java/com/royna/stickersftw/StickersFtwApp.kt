@@ -22,7 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -44,7 +44,9 @@ import com.royna.stickersftw.model.InstalledAppsState
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.StickerPack
 import com.royna.stickersftw.ui.AppViewModel
+import com.royna.stickersftw.ui.CreatePackSubmissionResult
 import com.royna.stickersftw.ui.ImportPreviewUiState
+import com.royna.stickersftw.ui.MediaPreparationPurpose
 import com.royna.stickersftw.ui.components.DuplicatePackOverwriteDialog
 import com.royna.stickersftw.ui.components.ExpandableActionFab
 import com.royna.stickersftw.ui.components.MixedPackChoiceDialog
@@ -65,7 +67,8 @@ import com.royna.stickersftw.ui.screens.SettingsScreen
 import com.royna.stickersftw.ui.screens.StickerGridScreen
 import com.royna.stickersftw.ui.screens.StickerEditorPendingUndo
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.yield
 
 private object Routes {
@@ -140,7 +143,7 @@ fun StickersFtwApp(
     pendingPackId: String? = null,
     onPendingPackIdConsumed: () -> Unit = {},
     sharedMedia: List<PickedMediaItem> = emptyList(),
-    onSharedMediaConsumed: () -> Unit = {},
+    onSharedMediaConsumed: (List<PickedMediaItem>) -> Unit = {},
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -169,6 +172,13 @@ fun StickersFtwApp(
     val customPickerThumbnails by viewModel.customPickerThumbnails.collectAsStateWithLifecycle()
     val botUsername by viewModel.botUsername.collectAsStateWithLifecycle()
     val pendingNavigation by viewModel.pendingNavigation.collectAsStateWithLifecycle()
+    val pendingCreateNavigation by viewModel.pendingCreateNavigation.collectAsStateWithLifecycle()
+    val sharedDeliveryInFlight by viewModel.sharedDeliveryInFlight.collectAsStateWithLifecycle()
+    val pendingSharedMediaNavigation by viewModel.pendingSharedMediaNavigation.collectAsStateWithLifecycle()
+    val mediaPreparationActive by viewModel.mediaPreparationActive.collectAsStateWithLifecycle()
+    val preparedMediaCompletion by viewModel.preparedMediaCompletion.collectAsStateWithLifecycle()
+    val mediaPreparationDeliveryRevision by
+        viewModel.mediaPreparationDeliveryRevision.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
     val trimRequest by viewModel.trimRequest.collectAsStateWithLifecycle()
     val cropRequest by viewModel.cropRequest.collectAsStateWithLifecycle()
@@ -179,9 +189,9 @@ fun StickersFtwApp(
     val showBottomBar = mainDestinations.any { it.route == currentRoute }
     val showActionFab = currentRoute == Routes.Convert || currentRoute == Routes.Packs
     var fabExpanded by rememberSaveable { mutableStateOf(false) }
-    val appScope = rememberCoroutineScope()
     var remixPrompt by remember { mutableStateOf<RemixPromptRequest?>(null) }
     var remixInFlight by remember { mutableStateOf(false) }
+    val latestSharedMedia by rememberUpdatedState(sharedMedia)
     var pendingRemixUndoPackId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRemixUndoKind by rememberSaveable { mutableStateOf<String?>(null) }
     val remixFailedMessage = stringResource(R.string.remix_pack_failed)
@@ -279,6 +289,108 @@ fun StickersFtwApp(
         if (openGrid) navController.navigate(Routes.grid(packId))
     }
 
+    /** Media range/crop is retained by the ViewModel, while every object that
+     * can safely navigate or open a remix dialog belongs to this composition.
+     * Claim the data here and release it if this owner is canceled by
+     * recreation; a replacement composition will claim the same completion.
+     * Once a foreground operation accepts the files, finish makes the action
+     * a one-shot and transfers file ownership to that operation. */
+    LaunchedEffect(preparedMediaCompletion, mediaPreparationDeliveryRevision) {
+        val completion = preparedMediaCompletion ?: return@LaunchedEffect
+        if (completion.purpose == MediaPreparationPurpose.Create) {
+            // Create owns an internal draft list and claims this completion in
+            // its destination composable below.
+            return@LaunchedEffect
+        }
+        if (!viewModel.claimPreparedMedia(completion.generation)) return@LaunchedEffect
+
+        var handedToService = false
+        try {
+            suspend fun editGridSticker(packId: String, rowId: Long) {
+                val prepared = completion.preparedMedia.singleOrNull() ?: return
+                val sourcePack = packs.firstOrNull { it.id == packId } ?: return
+                if (!viewModel.ensureEditorOperationAvailable()) return
+                val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
+                    val targetRowId = target.rowIdMap[rowId] ?: return@replayPackMutation false
+                    viewModel.startStickerEdit(
+                        target.packId,
+                        targetRowId,
+                        prepared,
+                    ).also { handedToService = it }
+                }
+                if (replay?.succeeded == true && replay.target.wasForked) {
+                    showRemixDestination(replay.target.packId, openGrid = true)
+                }
+            }
+
+            when (val purpose = completion.purpose) {
+                is MediaPreparationPurpose.ShareTargetAdd -> {
+                    if (latestSharedMedia !== purpose.sourceMedia) return@LaunchedEffect
+                    val sourcePack = packs.firstOrNull { it.id == purpose.packId }
+                        ?: return@LaunchedEffect
+                    if (!viewModel.ensureEditorOperationAvailable()) return@LaunchedEffect
+                    val replay = replayPackMutation(sourcePack) { target ->
+                        if (latestSharedMedia !== purpose.sourceMedia) {
+                            false
+                        } else {
+                            viewModel.addStickersToPack(
+                                target.packId,
+                                completion.preparedMedia,
+                            ).also { handedToService = it }
+                        }
+                    }
+                    if (
+                        replay?.succeeded == true &&
+                        latestSharedMedia === purpose.sourceMedia
+                    ) {
+                        onSharedMediaConsumed(purpose.sourceMedia)
+                        navController.navigate(Routes.conversion(replay.target.packId)) {
+                            popUpTo(Routes.ShareTarget) { inclusive = true }
+                        }
+                    }
+                }
+
+                is MediaPreparationPurpose.PackDetailAdd -> {
+                    val sourcePack = packs.firstOrNull { it.id == purpose.packId }
+                        ?: return@LaunchedEffect
+                    if (!viewModel.ensureEditorOperationAvailable()) return@LaunchedEffect
+                    val replay = replayPackMutation(sourcePack) { target ->
+                        viewModel.addStickersToPack(
+                            target.packId,
+                            completion.preparedMedia,
+                        ).also { handedToService = it }
+                    }
+                    if (replay?.succeeded == true) {
+                        if (replay.target.wasForked) {
+                            showRemixDestination(replay.target.packId, openGrid = false)
+                        }
+                        navController.navigate(Routes.conversion(replay.target.packId))
+                    }
+                }
+
+                is MediaPreparationPurpose.GridEdit ->
+                    editGridSticker(purpose.packId, purpose.rowId)
+
+                is MediaPreparationPurpose.GridReplace ->
+                    editGridSticker(purpose.packId, purpose.rowId)
+
+                MediaPreparationPurpose.Create -> Unit
+            }
+        } finally {
+            when {
+                handedToService -> viewModel.finishPreparedMedia(
+                    completion.generation,
+                    handedOff = true,
+                )
+                currentCoroutineContext().isActive -> viewModel.finishPreparedMedia(
+                    completion.generation,
+                    handedOff = false,
+                )
+                else -> viewModel.releasePreparedMedia(completion.generation)
+            }
+        }
+    }
+
     val whatsappAvailable = installedApps.whatsappInstalled || installedApps.whatsappBusinessInstalled
     val useBusinessWhatsapp = preferBusinessWhatsapp(installedApps)
 
@@ -307,6 +419,10 @@ fun StickersFtwApp(
     // per-state routing is needed.
     LaunchedEffect(pendingPackId) {
         if (pendingPackId != null) {
+            // A notification can replace Create while its retained range/crop
+            // request is active. Cancel first so a later completion cannot be
+            // left without a destination owner.
+            viewModel.cancelTrim()
             navController.navigate(Routes.conversion(pendingPackId)) {
                 launchSingleTop = true
             }
@@ -321,26 +437,43 @@ fun StickersFtwApp(
         }
     }
 
-    // Fires once an import/update actually starts running (immediately for
-    // a fresh pack, or after the user answers "Overwrite?" for a duplicate)
-    // -- can't navigate at the call site since a duplicate has to wait on
-    // that answer first.
-    // Keyed on identity rather than emptiness so a second share while the
-    // app is already open re-enters the flow instead of being swallowed.
-    LaunchedEffect(sharedMedia) {
-        if (sharedMedia.isNotEmpty()) {
-            navController.navigate(Routes.ShareTarget) { launchSingleTop = true }
-        }
+    // The delivery generation is a retained one-shot. Keying navigation on
+    // the media list itself would replay it on every Activity recreation and
+    // throw the user out of an in-progress Create form.
+    LaunchedEffect(pendingSharedMediaNavigation) {
+        val generation = pendingSharedMediaNavigation ?: return@LaunchedEffect
+        viewModel.cancelTrim()
+        navController.navigate(Routes.ShareTarget) { launchSingleTop = true }
+        viewModel.consumePendingSharedMediaNavigation(generation)
     }
 
     LaunchedEffect(pendingNavigation) {
         val packId = pendingNavigation
         if (packId != null) {
+            // Import completion also replaces the current route. Apply the
+            // same ownership boundary as new-share and notification routing.
+            viewModel.cancelTrim()
             navController.navigate(Routes.conversion(packId)) {
                 popUpTo(Routes.Import) { inclusive = true }
             }
             viewModel.consumePendingNavigation()
         }
+    }
+
+    LaunchedEffect(pendingCreateNavigation, sharedMedia, sharedDeliveryInFlight) {
+        val packId = pendingCreateNavigation ?: return@LaunchedEffect
+        // While a replacement SEND is copying, sharedMedia still points at
+        // the old Create batch. Do not mistake that old list for a settled
+        // newer delivery and throw away the only lifecycle-safe navigation.
+        if (sharedDeliveryInFlight) return@LaunchedEffect
+        // A newer ACTION_SEND wins the foreground. Its batch remains owned
+        // and visible; the started Create is still in My Packs/notification.
+        if (sharedMedia.isEmpty()) {
+            navController.navigate(Routes.conversion(packId)) {
+                popUpTo(Routes.Create) { inclusive = true }
+            }
+        }
+        viewModel.consumePendingCreateNavigation()
     }
 
     Scaffold(
@@ -474,51 +607,63 @@ fun StickersFtwApp(
                 ShareTargetScreen(
                     packs = packs,
                     sharedCount = sharedMedia.size,
+                    enabled = !mediaPreparationActive && !sharedDeliveryInFlight,
                     onCreateNew = { navController.navigate(Routes.Create) },
                     onAddToPack = { id ->
-                        val selectedPack = packs.firstOrNull { it.id == id }
-                            ?: return@ShareTargetScreen
-                        viewModel.prepareMedia(sharedMedia) { prepared ->
-                            appScope.launch {
-                                var handedToService = false
-                                try {
-                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
-                                    val replay = replayPackMutation(selectedPack) { target ->
-                                        viewModel.addStickersToPack(target.packId, prepared).also {
-                                            handedToService = it
-                                        }
-                                    }
-                                    if (replay?.succeeded == true) {
-                                        onSharedMediaConsumed()
-                                        navController.navigate(Routes.conversion(replay.target.packId)) {
-                                            popUpTo(Routes.ShareTarget) { inclusive = true }
-                                        }
-                                    }
-                                } finally {
-                                    if (!handedToService) viewModel.discardPreparedMedia(prepared)
-                                }
-                            }
+                        if (mediaPreparationActive || sharedDeliveryInFlight) {
+                            return@ShareTargetScreen
                         }
+                        if (packs.none { it.id == id }) return@ShareTargetScreen
+                        val mediaSnapshot = sharedMedia
+                        viewModel.prepareMedia(
+                            purpose = MediaPreparationPurpose.ShareTargetAdd(id, mediaSnapshot),
+                            items = mediaSnapshot,
+                        )
                     },
                     onBack = {
-                        onSharedMediaConsumed()
+                        viewModel.cancelTrim()
+                        onSharedMediaConsumed(sharedMedia)
                         navController.popBackStack()
                     },
                 )
             }
-            composable(Routes.Create) {
+            composable(Routes.Create) { entry ->
+                // A later ACTION_SEND may recompose the app while this Create
+                // submission is still being persisted. Keep the exact batch
+                // that seeded this destination so success never consumes the
+                // newer delivery by mistake.
+                val initialSharedBatch = remember(entry) { sharedMedia }
+                val createCompletion = preparedMediaCompletion?.takeIf {
+                    it.purpose == MediaPreparationPurpose.Create
+                }
                 CreatePackScreen(
-                    initialItems = sharedMedia,
-                    onPrepareMedia = viewModel::prepareMedia,
+                    enabled = !sharedDeliveryInFlight,
+                    initialItems = initialSharedBatch,
+                    onStartRetainedMediaPreparation = { items ->
+                        viewModel.prepareMedia(MediaPreparationPurpose.Create, items)
+                    },
+                    preparedMediaGeneration = createCompletion?.generation,
+                    preparedMediaDeliveryRevision = mediaPreparationDeliveryRevision,
+                    preparedMediaItems = createCompletion?.preparedMedia.orEmpty(),
+                    onClaimPreparedMedia = viewModel::claimPreparedMedia,
+                    onFinishPreparedMedia = viewModel::finishPreparedMedia,
+                    onCancelMediaPreparation = viewModel::cancelTrim,
+                    onDiscardMedia = viewModel::discardPreparedMedia,
                     onBack = { navController.popBackStack() },
                     botUsername = botUsername,
-                    onPublish = { items, title, shortName, pushToTelegram, addToWhatsapp ->
-                        viewModel.createPack(items, title, shortName) { packId ->
-                            onSharedMediaConsumed()
-                            if (viewModel.startPublish(packId, pushToTelegram, addToWhatsapp)) {
-                                navController.navigate(Routes.conversion(packId)) {
-                                    popUpTo(Routes.Create) { inclusive = true }
-                                }
+                    onPublish = { items, title, shortName, pushToTelegram, addToWhatsapp, onResult ->
+                        viewModel.createPack(
+                            items = items,
+                            title = title,
+                            shortName = shortName,
+                            pushToTelegram = pushToTelegram,
+                            addToWhatsapp = addToWhatsapp,
+                        ) { result ->
+                            // Transfer/discard screen-owned prepared files
+                            // before navigation can dispose the destination.
+                            onResult(result)
+                            if (result is CreatePackSubmissionResult.Started) {
+                                onSharedMediaConsumed(initialSharedBatch)
                             }
                         }
                     },
@@ -580,28 +725,11 @@ fun StickersFtwApp(
                     },
                     onViewAllStickers = { navController.navigate(Routes.grid(it)) },
                     onAddStickers = { id, items ->
-                        val selectedPack = pack ?: return@PackDetailScreen
-                        viewModel.prepareMedia(items) { prepared ->
-                            appScope.launch {
-                                var handedToService = false
-                                try {
-                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
-                                    val replay = replayPackMutation(selectedPack) { target ->
-                                        viewModel.addStickersToPack(target.packId, prepared).also {
-                                            handedToService = it
-                                        }
-                                    }
-                                    if (replay?.succeeded == true) {
-                                        if (replay.target.wasForked) {
-                                            showRemixDestination(replay.target.packId, openGrid = false)
-                                        }
-                                        navController.navigate(Routes.conversion(replay.target.packId))
-                                    }
-                                } finally {
-                                    if (!handedToService) viewModel.discardPreparedMedia(prepared)
-                                }
-                            }
-                        }
+                        if (pack == null) return@PackDetailScreen
+                        viewModel.prepareMedia(
+                            purpose = MediaPreparationPurpose.PackDetailAdd(id),
+                            items = items,
+                        )
                     },
                 )
             }
@@ -643,58 +771,13 @@ fun StickersFtwApp(
                     stickers = stickers,
                     onBack = { navController.popBackStack() },
                     onEdit = { rowId ->
-                        viewModel.prepareStickerEdit(id, rowId) { prepared ->
-                            appScope.launch {
-                                var handedToService = false
-                                try {
-                                    val sourcePack = pack ?: return@launch
-                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
-                                    val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
-                                        val targetRowId = target.rowIdMap[rowId] ?: return@replayPackMutation false
-                                        viewModel.startStickerEdit(
-                                            target.packId,
-                                            targetRowId,
-                                            prepared,
-                                        ).also { handedToService = it }
-                                    }
-                                    if (replay?.succeeded == true && replay.target.wasForked) {
-                                        showRemixDestination(replay.target.packId, openGrid = true)
-                                    }
-                                } finally {
-                                    if (!handedToService) {
-                                        viewModel.discardPreparedMedia(listOf(prepared))
-                                    }
-                                }
-                            }
-                        }
+                        viewModel.prepareStickerEdit(id, rowId)
                     },
                     onReplace = { rowId, item ->
-                        viewModel.prepareMedia(listOf(item)) { prepared ->
-                            val replacement = prepared.singleOrNull() ?: run {
-                                viewModel.discardPreparedMedia(prepared)
-                                return@prepareMedia
-                            }
-                            appScope.launch {
-                                var handedToService = false
-                                try {
-                                    val sourcePack = pack ?: return@launch
-                                    if (!viewModel.ensureEditorOperationAvailable()) return@launch
-                                    val replay = replayPackMutation(sourcePack, listOf(rowId)) { target ->
-                                        val targetRowId = target.rowIdMap[rowId] ?: return@replayPackMutation false
-                                        viewModel.startStickerEdit(
-                                            target.packId,
-                                            targetRowId,
-                                            replacement,
-                                        ).also { handedToService = it }
-                                    }
-                                    if (replay?.succeeded == true && replay.target.wasForked) {
-                                        showRemixDestination(replay.target.packId, openGrid = true)
-                                    }
-                                } finally {
-                                    if (!handedToService) viewModel.discardPreparedMedia(prepared)
-                                }
-                            }
-                        }
+                        viewModel.prepareMedia(
+                            purpose = MediaPreparationPurpose.GridReplace(id, rowId),
+                            items = listOf(item),
+                        )
                     },
                     onUpdateEmoji = { rowId, emojis ->
                         val sourcePack = pack
@@ -860,7 +943,9 @@ fun StickersFtwApp(
     // state or restart its initial-media effect.
     trimRequest?.let { request ->
         Dialog(
-            onDismissRequest = viewModel::cancelTrim,
+            onDismissRequest = {
+                viewModel.cancelTrim()
+            },
             properties = DialogProperties(
                 dismissOnClickOutside = false,
                 usePlatformDefaultWidth = false,
@@ -876,14 +961,18 @@ fun StickersFtwApp(
                 total = request.total,
                 onRangeChanged = viewModel::setTrimRange,
                 onConfirm = viewModel::confirmTrim,
-                onBack = viewModel::cancelTrim,
+                onBack = {
+                    viewModel.cancelTrim()
+                },
             )
         }
     }
 
     cropRequest?.let { request ->
         Dialog(
-            onDismissRequest = viewModel::cancelTrim,
+            onDismissRequest = {
+                viewModel.cancelTrim()
+            },
             properties = DialogProperties(
                 dismissOnClickOutside = false,
                 usePlatformDefaultWidth = false,
@@ -896,7 +985,9 @@ fun StickersFtwApp(
                 total = request.total,
                 onConfirm = viewModel::confirmCrop,
                 onKeepFull = viewModel::keepFullImage,
-                onBack = viewModel::cancelTrim,
+                onBack = {
+                    viewModel.cancelTrim()
+                },
             )
         }
     }

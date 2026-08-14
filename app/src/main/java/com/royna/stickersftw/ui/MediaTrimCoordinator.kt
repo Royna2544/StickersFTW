@@ -9,7 +9,9 @@ import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 import com.royna.stickersftw.model.MediaCrop
 import java.io.File
+import java.util.Collections
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +65,9 @@ class MediaTrimCoordinator(private val context: Context) {
     private var onResolved: ((List<PickedMediaItem>) -> Unit)? = null
     /** Invalidates an in-flight crop preview decode when the flow advances. */
     private var requestToken = 0L
+    /** Distinguishes overlapping materialise/duration work. A newer intake or
+     * cancellation must not be able to resurrect an older range request. */
+    private val preparationGeneration = MediaPreparationGeneration()
 
     /** Starts the edit flow and calls [onReady] once every requested trim and
      * crop decision has been made. */
@@ -70,35 +75,57 @@ class MediaTrimCoordinator(private val context: Context) {
         picked: List<PickedMediaItem>,
         onReady: (List<PickedMediaItem>) -> Unit,
     ): Boolean {
+        val generation = preparationGeneration.next()
         // A new picker/share result supersedes any trim flow that was still
         // open. It also makes a preview already decoding for that flow stale.
-        clear()
-        val materialised = withContext(Dispatchers.IO) { picked.map { materialise(it) } }
-        materialisedFiles = materialised.mapNotNull { it.createdFile }
-        val materialisedItems = materialised.map { it.item }
-        val durations = withContext(Dispatchers.IO) {
-            materialisedItems.map { item ->
-                if (item.kind != PickedMediaKind.Video) {
-                    null
-                } else {
-                    fileOf(item)?.let { VideoStickerConverter.durationMsOf(it) }
+        clear(invalidatePreparation = false)
+        val createdFiles = Collections.synchronizedList(mutableListOf<File>())
+        var coordinatorOwnsFiles = false
+        try {
+            val materialised = withContext(Dispatchers.IO) {
+                picked.map { item ->
+                    materialise(item).also { result ->
+                        result.createdFile?.let(createdFiles::add)
+                    }
                 }
             }
-        }
+            if (!preparationGeneration.isCurrent(generation)) return false
 
-        items = materialisedItems
-        onResolved = onReady
-        queue = knownVideoRangeIndices(durations)
-        queueIndex = 0
-        durationsByIndex = durations
+            val materialisedItems = materialised.map { it.item }
+            val durations = withContext(Dispatchers.IO) {
+                materialisedItems.map { item ->
+                    if (item.kind != PickedMediaKind.Video) {
+                        null
+                    } else {
+                        fileOf(item)?.let { VideoStickerConverter.durationMsOf(it) }
+                    }
+                }
+            }
+            if (!preparationGeneration.isCurrent(generation)) return false
 
-        if (queue.isEmpty()) {
-            beginCropping()
+            materialisedFiles = createdFiles
+            coordinatorOwnsFiles = true
+            items = materialisedItems
+            onResolved = onReady
+            queue = knownVideoRangeIndices(durations)
+            queueIndex = 0
+            durationsByIndex = durations
+
+            if (queue.isEmpty()) {
+                beginCropping()
+                return true
+            }
+
+            showCurrent()
             return true
+        } catch (cancelled: CancellationException) {
+            if (coordinatorOwnsFiles) clear()
+            throw cancelled
+        } finally {
+            // A superseded begin never publishes its files into coordinator
+            // state, so it alone remains responsible for cleaning them up.
+            if (!coordinatorOwnsFiles) createdFiles.toList().forEach(File::delete)
         }
-
-        showCurrent()
-        return true
     }
 
     private var durationsByIndex: List<Long?> = emptyList()
@@ -169,7 +196,11 @@ class MediaTrimCoordinator(private val context: Context) {
         }
     }
 
-    private fun clear(deletePendingFiles: Boolean = true) {
+    private fun clear(
+        deletePendingFiles: Boolean = true,
+        invalidatePreparation: Boolean = true,
+    ) {
+        if (invalidatePreparation) preparationGeneration.invalidate()
         requestToken++
         if (deletePendingFiles) materialisedFiles.forEach(File::delete)
         _request.value = null
@@ -276,12 +307,25 @@ class MediaTrimCoordinator(private val context: Context) {
         }
     }
 
-    /** Copies a picked item into app storage, unless it is already a file
-     * this app owns (a share has been copied once already). */
+    /** Copies replaceable ACTION_SEND input into preparation storage. Other
+     * file URIs are already durable app-owned media (including pack sources
+     * and an item prepared by this coordinator) and can be reused directly. */
     private fun materialise(item: PickedMediaItem): MaterialisedMedia {
         val uri = Uri.parse(item.uri)
-        if (uri.scheme == "file") return MaterialisedMedia(item)
         val directory = File(context.cacheDir, DIRECTORY).apply { mkdirs() }
+        if (uri.scheme == "file") {
+            val existing = uri.path?.let(::File)
+            val existingPath = existing?.let { runCatching { it.canonicalPath }.getOrNull() }
+            val replaceableSharePrefix = runCatching {
+                File(context.cacheDir, SHARED_DIRECTORY).canonicalPath + File.separator
+            }.getOrNull()
+            if (
+                existingPath != null &&
+                (replaceableSharePrefix == null || !existingPath.startsWith(replaceableSharePrefix))
+            ) {
+                return MaterialisedMedia(item)
+            }
+        }
         val destination = File(directory, UUID.randomUUID().toString())
         return try {
             context.contentResolver.openInputStream(uri)?.use { input ->
@@ -302,6 +346,7 @@ class MediaTrimCoordinator(private val context: Context) {
 
     private companion object {
         const val DIRECTORY = "picked"
+        const val SHARED_DIRECTORY = "shared"
         const val MAX_PREVIEW_SIDE = 1_536
     }
 
@@ -309,4 +354,18 @@ class MediaTrimCoordinator(private val context: Context) {
         val item: PickedMediaItem,
         val createdFile: File? = null,
     )
+}
+
+/** Small separately-testable generation gate used around coordinator suspend
+ * points. All production access happens on the ViewModel's main dispatcher. */
+internal class MediaPreparationGeneration {
+    private var current = 0L
+
+    fun next(): Long = ++current
+
+    fun invalidate() {
+        current++
+    }
+
+    fun isCurrent(generation: Long): Boolean = generation == current
 }

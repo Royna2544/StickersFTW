@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.royna.stickersftw.R
+import com.royna.stickersftw.SharedMedia
 import com.royna.stickersftw.data.SettingsRepository
 import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.data.ForkPackResult
@@ -38,6 +39,7 @@ import com.royna.stickersftw.operation.PackOperationController
 import com.royna.stickersftw.operation.PackOperationRequest
 import com.royna.stickersftw.operation.PackOperationService
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -59,6 +61,163 @@ data class DuplicatePackPrompt(
     val onConfirm: () -> Unit,
     val onReject: () -> Unit,
 )
+
+/** Synchronous gate between a Create button click and the coroutine that
+ * persists its pack. The operation-availability check is part of acquisition
+ * so a rejected attempt does not consume the user's ability to retry. */
+internal class CreateSubmissionGate {
+    private val accepted = AtomicBoolean(false)
+
+    fun tryAccept(operationAvailable: Boolean): Boolean =
+        operationAvailable && accepted.compareAndSet(false, true)
+
+    fun release() {
+        accepted.set(false)
+    }
+}
+
+/** Keeps ACTION_SEND ownership stable while its bytes are copied and across
+ * Activity recreation. All calls are made on the ViewModel's main thread. */
+internal class SharedMediaDeliveryGate {
+    private var generation = 0L
+    private var active = false
+    private var inFlight = false
+
+    fun beginInitial(): Long? {
+        if (active) return null
+        return begin()
+    }
+
+    fun beginReplacement(): Long = begin()
+
+    private fun begin(): Long {
+        active = true
+        inFlight = true
+        return ++generation
+    }
+
+    fun complete(candidate: Long, hasMedia: Boolean): Boolean {
+        if (candidate != generation) return false
+        inFlight = false
+        active = hasMedia
+        return true
+    }
+
+    fun tryConsume(): Boolean {
+        if (!active || inFlight) return false
+        active = false
+        return true
+    }
+
+    fun invalidate() {
+        generation++
+        active = false
+        inFlight = false
+    }
+
+    val isActive: Boolean get() = active
+    val isInFlight: Boolean get() = inFlight
+}
+
+/** Retains a completed media preparation until the currently visible
+ * composition claims it. A claim is released on lifecycle cancellation, so a
+ * replacement composition can continue it; [finish] makes the action a
+ * one-shot once it has either handed the files off or deliberately failed. */
+internal class MediaPreparationDeliveryGate {
+    private var generation = 0L
+    private var active = false
+    private var published = false
+    private var claimed = false
+    private val _deliveryRevision = MutableStateFlow(0L)
+    val deliveryRevision: StateFlow<Long> = _deliveryRevision.asStateFlow()
+
+    fun begin(): Long? {
+        if (active) return null
+        active = true
+        published = false
+        claimed = false
+        return ++generation
+    }
+
+    fun publish(candidate: Long): Boolean {
+        if (!active || published || candidate != generation) return false
+        published = true
+        return true
+    }
+
+    fun tryClaim(candidate: Long): Boolean {
+        if (!active || !published || claimed || candidate != generation) return false
+        claimed = true
+        return true
+    }
+
+    fun release(candidate: Long): Boolean {
+        if (!active || !published || !claimed || candidate != generation) return false
+        claimed = false
+        // A replacement composition may already have observed the unchanged
+        // completion and failed its first claim while the old owner was still
+        // active. This observable revision wakes it for another attempt.
+        _deliveryRevision.value++
+        return true
+    }
+
+    fun finish(candidate: Long): Boolean {
+        if (!active || candidate != generation) return false
+        active = false
+        published = false
+        claimed = false
+        return true
+    }
+
+    fun invalidate() {
+        generation++
+        active = false
+        published = false
+        claimed = false
+    }
+
+    val isActive: Boolean get() = active
+}
+
+/** Unwinds a preparation generation for both ordinary source-load failures
+ * and cancellation, while preserving structured cancellation for callers. */
+internal suspend fun <T> guardedMediaPreparationSource(
+    onFailure: () -> Unit,
+    load: suspend () -> T,
+): T? = try {
+    load()
+} catch (cancelled: CancellationException) {
+    onFailure()
+    throw cancelled
+} catch (_: Exception) {
+    onFailure()
+    null
+}
+
+sealed interface MediaPreparationPurpose {
+    data class ShareTargetAdd(
+        val packId: String,
+        /** Exact retained ACTION_SEND batch selected on the destination screen. */
+        val sourceMedia: List<PickedMediaItem>,
+    ) : MediaPreparationPurpose
+
+    data object Create : MediaPreparationPurpose
+    data class PackDetailAdd(val packId: String) : MediaPreparationPurpose
+    data class GridEdit(val packId: String, val rowId: Long) : MediaPreparationPurpose
+    data class GridReplace(val packId: String, val rowId: Long) : MediaPreparationPurpose
+}
+
+data class PreparedMediaCompletion(
+    val generation: Long,
+    val purpose: MediaPreparationPurpose,
+    /** Independently materialised range/crop recipe owned until [finish]. */
+    val preparedMedia: List<PickedMediaItem>,
+)
+
+sealed interface CreatePackSubmissionResult {
+    data class Started(val packId: String) : CreatePackSubmissionResult
+    data object Failed : CreatePackSubmissionResult
+}
 
 sealed class ServerUrlSaveResult {
     data object Saved : ServerUrlSaveResult()
@@ -102,6 +261,7 @@ class AppViewModel(
 ) : AndroidViewModel(application) {
     private val settingsRepository = SettingsRepository(application)
     private val packRepository = StickerPackRepository(application)
+    private val createSubmissionGate = CreateSubmissionGate()
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings.stateIn(
         scope = viewModelScope,
@@ -118,6 +278,31 @@ class AppViewModel(
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptyList(),
     )
+
+    private val sharedMediaDelivery = SharedMediaDeliveryGate()
+    private val _sharedMedia = MutableStateFlow<List<PickedMediaItem>>(emptyList())
+    val sharedMedia: StateFlow<List<PickedMediaItem>> = _sharedMedia.asStateFlow()
+    private val _sharedDeliveryActive = MutableStateFlow(false)
+    val sharedDeliveryActive: StateFlow<Boolean> = _sharedDeliveryActive.asStateFlow()
+    private val _sharedDeliveryInFlight = MutableStateFlow(false)
+    val sharedDeliveryInFlight: StateFlow<Boolean> = _sharedDeliveryInFlight.asStateFlow()
+    private val _pendingSharedMediaNavigation = MutableStateFlow<Long?>(null)
+    val pendingSharedMediaNavigation: StateFlow<Long?> = _pendingSharedMediaNavigation.asStateFlow()
+
+    private val mediaPreparationDelivery = MediaPreparationDeliveryGate()
+    private val _mediaPreparationActive = MutableStateFlow(false)
+    val mediaPreparationActive: StateFlow<Boolean> = _mediaPreparationActive.asStateFlow()
+    private val _preparedMediaCompletion = MutableStateFlow<PreparedMediaCompletion?>(null)
+    val preparedMediaCompletion: StateFlow<PreparedMediaCompletion?> =
+        _preparedMediaCompletion.asStateFlow()
+    val mediaPreparationDeliveryRevision: StateFlow<Long> =
+        mediaPreparationDelivery.deliveryRevision
+
+    fun consumePendingSharedMediaNavigation(generation: Long) {
+        if (_pendingSharedMediaNavigation.value == generation) {
+            _pendingSharedMediaNavigation.value = null
+        }
+    }
 
     private val _installedApps = MutableStateFlow(InstalledAppsState())
     val installedApps: StateFlow<InstalledAppsState> = _installedApps.asStateFlow()
@@ -229,6 +414,16 @@ class AppViewModel(
 
     fun consumePendingNavigation() {
         _pendingNavigation.value = null
+    }
+
+    /** Create can finish its Room write after the Activity that submitted it
+     * rotates. Navigation therefore belongs to the retained ViewModel rather
+     * than the submitting composition's callback. */
+    private val _pendingCreateNavigation = MutableStateFlow<String?>(null)
+    val pendingCreateNavigation: StateFlow<String?> = _pendingCreateNavigation.asStateFlow()
+
+    fun consumePendingCreateNavigation() {
+        _pendingCreateNavigation.value = null
     }
 
     /** The Telegram pack link/short-name last submitted to [loadPreview] --
@@ -518,11 +713,70 @@ class AppViewModel(
         )
     }
 
-    fun createPack(items: List<PickedMediaItem>, title: String, shortName: String, onCreated: (String) -> Unit) {
-        viewModelScope.launch {
-            val packId = packRepository.createPack(items, title, shortName)
-            onCreated(packId)
+    /** Accepts or rejects the submission synchronously, before the repository
+     * coroutine can yield. This prevents two rapid clicks from inserting two
+     * packs with the same prepared media. */
+    fun createPack(
+        items: List<PickedMediaItem>,
+        title: String,
+        shortName: String,
+        pushToTelegram: Boolean,
+        addToWhatsapp: Boolean,
+        onResult: (CreatePackSubmissionResult) -> Unit,
+    ): Boolean {
+        val operationAvailable = !PackOperationController.isRunning
+        if (!createSubmissionGate.tryAccept(operationAvailable)) {
+            if (!operationAvailable) {
+                _busyMessage.value = getApplication<Application>().getString(R.string.err_operation_already_running)
+            }
+            return false
         }
+        viewModelScope.launch {
+            var packId: String? = null
+            var handedToService = false
+            var result: CreatePackSubmissionResult = CreatePackSubmissionResult.Failed
+            try {
+                val createdPackId = UUID.randomUUID().toString()
+                packId = createdPackId
+                packRepository.createPack(items, title, shortName, createdPackId)
+                handedToService = start(
+                    PackOperationRequest.Publish(
+                        packId = createdPackId,
+                        packTitle = title,
+                        pushToTelegram = pushToTelegram,
+                        addToWhatsapp = addToWhatsapp,
+                    ),
+                )
+                if (handedToService) {
+                    result = CreatePackSubmissionResult.Started(createdPackId)
+                    _pendingCreateNavigation.value = createdPackId
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _busyMessage.value = error.message
+                    ?: getApplication<Application>().getString(R.string.err_import_failed)
+            } finally {
+                if (!handedToService) {
+                    packId?.let { unstartedPackId ->
+                        try {
+                            withContext(NonCancellable) {
+                                packRepository.discardUnstartedCreatedPack(unstartedPackId)
+                            }
+                        } catch (_: Exception) {
+                            // The retry remains safe because prepared inputs
+                            // are never deleted by this cleanup. Startup will
+                            // mark any surviving Building row as interrupted.
+                        }
+                    }
+                }
+                // Release before notifying the UI so an async rejection can
+                // be retried immediately from the callback's next frame.
+                createSubmissionGate.release()
+                onResult(result)
+            }
+        }
+        return true
     }
 
     fun startPublish(packId: String, pushToTelegram: Boolean, addToWhatsapp: Boolean): Boolean =
@@ -595,15 +849,23 @@ class AppViewModel(
     fun prepareStickerEdit(
         packId: String,
         rowId: Long,
-        onReady: (PickedMediaItem) -> Unit,
-    ) {
+    ): Boolean {
+        val purpose = MediaPreparationPurpose.GridEdit(packId, rowId)
+        val generation = beginMediaPreparation() ?: return false
         viewModelScope.launch {
-            packRepository.finalizeLastPackEdit(packId)
-            val item = packRepository.editableStickerItem(packId, rowId) ?: return@launch
-            trimCoordinator.begin(listOf(item)) { prepared ->
-                prepared.singleOrNull()?.let(onReady)
+            val item = guardedMediaPreparationSource(
+                onFailure = { failMediaPreparation(generation) },
+            ) {
+                packRepository.finalizeLastPackEdit(packId)
+                packRepository.editableStickerItem(packId, rowId)
             }
+            if (item == null) {
+                failMediaPreparation(generation)
+                return@launch
+            }
+            runMediaPreparation(generation, purpose, listOf(item))
         }
+        return true
     }
 
     fun startStickerEdit(packId: String, rowId: Long, item: PickedMediaItem): Boolean =
@@ -664,16 +926,148 @@ class AppViewModel(
         packRepository.finalizeLastPackEdit(packId)
     }
 
+    // ---- Retained ACTION_SEND intake ---------------------------------
+
+    /** Claims the Activity's launch Intent only when no delivery is already
+     * retained. A configuration replacement therefore reuses the exact same
+     * batch (and list identity) instead of copying it again. */
+    fun ingestInitialSharedMedia(intent: Intent?) {
+        val delivery = intent ?: return
+        if (!delivery.isMediaShare()) return
+        val generation = sharedMediaDelivery.beginInitial() ?: return
+        _sharedDeliveryActive.value = true
+        _sharedDeliveryInFlight.value = true
+        ingestSharedMedia(delivery, generation)
+    }
+
+    /** A real singleTask delivery supersedes any older editor, even if its
+     * copy is still in flight. Stale copy results clean only themselves. */
+    fun replaceSharedMedia(intent: Intent?) {
+        val delivery = intent ?: return
+        if (!delivery.isMediaShare()) return
+        val generation = sharedMediaDelivery.beginReplacement()
+        _sharedDeliveryActive.value = true
+        _sharedDeliveryInFlight.value = true
+        _pendingSharedMediaNavigation.value = null
+        cancelTrim()
+        ingestSharedMedia(delivery, generation)
+    }
+
+    private fun ingestSharedMedia(intent: Intent, generation: Long) {
+        viewModelScope.launch {
+            val ingested = try {
+                SharedMedia.ingest(intent, getApplication())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+            if (!sharedMediaDelivery.complete(generation, ingested.isNotEmpty())) {
+                SharedMedia.discard(ingested, getApplication())
+                return@launch
+            }
+
+            val replaced = _sharedMedia.value
+            _sharedMedia.value = ingested
+            _sharedDeliveryActive.value = sharedMediaDelivery.isActive
+            _sharedDeliveryInFlight.value = sharedMediaDelivery.isInFlight
+            _pendingSharedMediaNavigation.value = generation.takeIf { ingested.isNotEmpty() }
+            if (replaced !== ingested) SharedMedia.discard(replaced, getApplication())
+        }
+    }
+
+    /** Consumes only the exact visible batch, and never while a newer Intent
+     * is still copying. This prevents a late callback from clearing the new
+     * Activity Intent or deleting its source batch. */
+    fun consumeSharedMedia(items: List<PickedMediaItem>): Boolean {
+        if (_sharedMedia.value !== items || !sharedMediaDelivery.tryConsume()) return false
+        _sharedMedia.value = emptyList()
+        _sharedDeliveryActive.value = false
+        _sharedDeliveryInFlight.value = false
+        _pendingSharedMediaNavigation.value = null
+        SharedMedia.discard(items, getApplication())
+        return true
+    }
+
     // ---- Preparing picked media (trim + crop) -------------------------
 
     private val trimCoordinator = MediaTrimCoordinator(application)
     val trimRequest: StateFlow<TrimRequest?> = trimCoordinator.request
     val cropRequest: StateFlow<CropRequest?> = trimCoordinator.cropRequest
 
-    /** Materialises picked media, selects a range for every video, then offers a
-     * non-destructive crop before handing the edited items to [onReady]. */
-    fun prepareMedia(items: List<PickedMediaItem>, onReady: (List<PickedMediaItem>) -> Unit) {
-        viewModelScope.launch { trimCoordinator.begin(items, onReady) }
+    /** Materialises picked media, selects a range for every video, then offers
+     * a non-destructive crop. Completion is retained as data instead of an UI
+     * lambda so the current composition can claim it after recreation. */
+    fun prepareMedia(
+        purpose: MediaPreparationPurpose,
+        items: List<PickedMediaItem>,
+    ): Boolean {
+        val generation = beginMediaPreparation() ?: return false
+        viewModelScope.launch { runMediaPreparation(generation, purpose, items) }
+        return true
+    }
+
+    private fun beginMediaPreparation(): Long? {
+        val generation = mediaPreparationDelivery.begin() ?: return null
+        _mediaPreparationActive.value = true
+        return generation
+    }
+
+    private suspend fun runMediaPreparation(
+        generation: Long,
+        purpose: MediaPreparationPurpose,
+        items: List<PickedMediaItem>,
+    ) {
+        val started = try {
+            trimCoordinator.begin(items) { prepared ->
+                if (mediaPreparationDelivery.publish(generation)) {
+                    _preparedMediaCompletion.value = PreparedMediaCompletion(
+                        generation = generation,
+                        purpose = purpose,
+                        preparedMedia = prepared,
+                    )
+                } else {
+                    trimCoordinator.discardResolved(prepared)
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        if (!started) failMediaPreparation(generation)
+    }
+
+    private fun failMediaPreparation(generation: Long) {
+        if (mediaPreparationDelivery.finish(generation)) {
+            _mediaPreparationActive.value = false
+        }
+    }
+
+    fun claimPreparedMedia(generation: Long): Boolean =
+        mediaPreparationDelivery.tryClaim(generation)
+
+    fun releasePreparedMedia(generation: Long) {
+        mediaPreparationDelivery.release(generation)
+    }
+
+    /** Resolves a claimed completion exactly once. [handedOff] means either a
+     * foreground operation or the Create draft owns the files; every other
+     * outcome reclaims them here. */
+    fun finishPreparedMedia(generation: Long, handedOff: Boolean) {
+        val pending = _preparedMediaCompletion.value
+        if (pending?.generation != generation || !mediaPreparationDelivery.finish(generation)) return
+        _preparedMediaCompletion.value = null
+        _mediaPreparationActive.value = false
+        if (!handedOff) trimCoordinator.discardResolved(pending.preparedMedia)
+    }
+
+    private fun invalidatePreparedMedia() {
+        val pending = _preparedMediaCompletion.value
+        mediaPreparationDelivery.invalidate()
+        _preparedMediaCompletion.value = null
+        _mediaPreparationActive.value = false
+        pending?.let { trimCoordinator.discardResolved(it.preparedMedia) }
     }
 
     fun discardPreparedMedia(items: List<PickedMediaItem>) {
@@ -688,7 +1082,10 @@ class AppViewModel(
         viewModelScope.launch { trimCoordinator.confirm(startMs, durationMs) }
     }
 
-    fun cancelTrim() = trimCoordinator.cancel()
+    fun cancelTrim() {
+        invalidatePreparedMedia()
+        trimCoordinator.cancel()
+    }
 
     fun confirmCrop(crop: com.royna.stickersftw.model.MediaCrop) {
         viewModelScope.launch { trimCoordinator.confirmCrop(crop) }
@@ -744,6 +1141,20 @@ class AppViewModel(
         PackOperationService.start(getApplication(), request)
         return true
     }
+
+    override fun onCleared() {
+        sharedMediaDelivery.invalidate()
+        cancelTrim()
+        SharedMedia.discard(_sharedMedia.value, getApplication())
+        _sharedMedia.value = emptyList()
+        _sharedDeliveryActive.value = false
+        _sharedDeliveryInFlight.value = false
+        _pendingSharedMediaNavigation.value = null
+        super.onCleared()
+    }
+
+    private fun Intent?.isMediaShare(): Boolean =
+        this?.action == Intent.ACTION_SEND || this?.action == Intent.ACTION_SEND_MULTIPLE
 
     private fun isAnyPackageInstalled(vararg packageNames: String): Boolean {
         val packageManager = getApplication<Application>().packageManager

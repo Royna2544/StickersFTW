@@ -16,9 +16,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.royna.stickersftw.data.ThemeModeCache
 import com.royna.stickersftw.model.ThemeMode
-import androidx.lifecycle.lifecycleScope
-import com.royna.stickersftw.model.PickedMediaItem
-import kotlinx.coroutines.launch
 import com.royna.stickersftw.ui.AppViewModel
 import com.royna.stickersftw.ui.theme.StickersFtwTheme
 import com.royna.stickersftw.ui.theme.resolveDarkTheme
@@ -26,7 +23,6 @@ import com.royna.stickersftw.ui.theme.resolveDarkTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private var pendingPackId by mutableStateOf<String?>(null)
-    private var sharedMedia by mutableStateOf<List<PickedMediaItem>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // The window exists from process start until Compose draws its first
@@ -51,27 +47,60 @@ class MainActivity : ComponentActivity() {
         applyEdgeToEdge(startupThemeMode.resolveDarkTheme(resources))
         super.onCreate(savedInstanceState)
         pendingPackId = intent?.getStringExtra(EXTRA_PACK_ID)
-        ingestShare(intent)
+        // The ViewModel claims an initial SEND only once. It survives a
+        // configuration replacement along with the exact batch instance (or
+        // an in-flight copy), so recreation must not copy the retained Intent
+        // into a second directory and replace the editor underneath the user.
+        viewModel.ingestInitialSharedMedia(intent)
 
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
+            val sharedMedia by viewModel.sharedMedia.collectAsStateWithLifecycle()
+            val sharedDeliveryActive by viewModel.sharedDeliveryActive.collectAsStateWithLifecycle()
             val darkTheme = settings.themeMode.resolveDarkTheme()
 
             // Keeps the bar icons in step once the real preference lands from
             // DataStore, and when the user flips the setting. The first run is
             // a no-op repeat of the onCreate call above.
             LaunchedEffect(darkTheme) { applyEdgeToEdge(darkTheme) }
+            // A retained callback from the Activity being replaced may be the
+            // one that consumes the batch. Observe ownership here as well so
+            // the current Activity, not only that old instance, clears SEND.
+            LaunchedEffect(sharedDeliveryActive) {
+                if (!sharedDeliveryActive) clearRetainedShareIntent()
+            }
 
             StickersFtwTheme(themeMode = settings.themeMode) {
                 StickersFtwApp(
                     viewModel = viewModel,
                     pendingPackId = pendingPackId,
-                    onPendingPackIdConsumed = { pendingPackId = null },
+                    onPendingPackIdConsumed = {
+                        pendingPackId = null
+                        clearRetainedPackId()
+                    },
                     sharedMedia = sharedMedia,
-                    onSharedMediaConsumed = { sharedMedia = emptyList() },
+                    onSharedMediaConsumed = { consumed ->
+                        // Only consuming the exact current batch may clear the
+                        // retained SEND. A late callback from an older editor,
+                        // or consumption while a newer share is still copying,
+                        // must leave that newer delivery reconstructible.
+                        if (viewModel.consumeSharedMedia(consumed)) {
+                            clearRetainedShareIntent()
+                        }
+                    },
                 )
             }
         }
+    }
+
+    /** Prevents a consumed notification destination from replaying after an
+     * Activity recreation. Copying the Intent and removing only this extra
+     * deliberately preserves an active SEND action, grant, ClipData, MIME
+     * type, and stream while shared media is still being edited. */
+    private fun clearRetainedPackId() {
+        val retained = intent ?: return
+        if (!retained.hasExtra(EXTRA_PACK_ID)) return
+        setIntent(retained.copyWithoutPendingPackId())
     }
 
     // singleTask launch mode routes a notification tap back into this same
@@ -79,20 +108,29 @@ class MainActivity : ComponentActivity() {
     // be picked up here rather than only in onCreate.
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        // ComponentActivity does not replace getIntent() for us. Keeping the
+        // latest singleTask delivery here is essential if a configuration
+        // change happens while its media is still being copied.
+        setIntent(intent)
         pendingPackId = intent.getStringExtra(EXTRA_PACK_ID)
         // singleTask means a share into an already-running instance arrives
         // here rather than at onCreate, so it has to be read in both places.
-        ingestShare(intent)
+        viewModel.replaceSharedMedia(intent)
     }
 
-    /** Copies shared media off the incoming grant before anything else can
-     * need it -- see [SharedMedia]. Off the main thread because a shared clip
-     * can be tens of megabytes. */
-    private fun ingestShare(intent: Intent?) {
-        if (intent?.action != Intent.ACTION_SEND && intent?.action != Intent.ACTION_SEND_MULTIPLE) return
-        lifecycleScope.launch {
-            sharedMedia = SharedMedia.ingest(intent, this@MainActivity)
-        }
+    /** Stops a consumed SEND from being replayed by Android when this Activity
+     * is recreated. Other launch metadata is preserved. */
+    private fun clearRetainedShareIntent() {
+        val retained = intent ?: return
+        if (retained.action != Intent.ACTION_SEND && retained.action != Intent.ACTION_SEND_MULTIPLE) return
+        setIntent(
+            Intent(retained).apply {
+                action = Intent.ACTION_MAIN
+                type = null
+                clipData = null
+                removeExtra(Intent.EXTRA_STREAM)
+            },
+        )
     }
 
     /** Bare [enableEdgeToEdge] detects dark mode from `Configuration.uiMode`,
@@ -126,3 +164,6 @@ class MainActivity : ComponentActivity() {
         private val DEFAULT_DARK_SCRIM = Color.argb(0x80, 0x1b, 0x1b, 0x1b)
     }
 }
+
+internal fun Intent.copyWithoutPendingPackId(): Intent =
+    Intent(this).apply { removeExtra(MainActivity.EXTRA_PACK_ID) }

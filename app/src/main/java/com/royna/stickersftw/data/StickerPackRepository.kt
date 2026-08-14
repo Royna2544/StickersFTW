@@ -368,6 +368,7 @@ class StickerPackRepository(private val appContext: Context) {
                 emit(PackOperationProgress.Failed(appContext.getString(R.string.err_could_not_read_sticker_media)))
                 return@flow
             }
+            deletePreparedInput(item.uri)
 
             val type = if (item.kind == PickedMediaKind.Video) StickerMediaType.Video else StickerMediaType.Static
             emit(
@@ -1416,6 +1417,15 @@ class StickerPackRepository(private val appContext: Context) {
                 stickerDao.deleteByRowId(rowId)
                 continue
             }
+            // The operation now owns a durable source. Stop pointing Room at
+            // the temporary picker/share copy before reclaiming that cache.
+            updateStickerByRowId(rowId) {
+                it.copy(
+                    sourceLocalUri = Uri.fromFile(original).toString(),
+                    originalFilePath = original.absolutePath,
+                )
+            }
+            deletePreparedInput(item.uri)
 
             val type = if (item.kind == PickedMediaKind.Video) StickerMediaType.Video else StickerMediaType.Static
             val output = File(packDir, "converted/$rowId.webp")
@@ -1476,59 +1486,78 @@ class StickerPackRepository(private val appContext: Context) {
         emit(PackOperationProgress.Failed(e.message ?: appContext.getString(R.string.err_import_failed)))
     }.flowOn(Dispatchers.IO)
 
-    suspend fun createPack(items: List<PickedMediaItem>, title: String, shortName: String): String {
-        val packId = UUID.randomUUID().toString()
+    suspend fun createPack(
+        items: List<PickedMediaItem>,
+        title: String,
+        shortName: String,
+        packId: String = UUID.randomUUID().toString(),
+    ): String {
         val now = System.currentTimeMillis()
-        packDao.upsert(
-            PackEntity(
-                id = packId,
-                origin = PackOrigin.Created.name,
-                telegramSetName = null,
-                // Blank means the pack was created for WhatsApp only, so it
-                // has no Telegram identity at all. Stored as null rather than
-                // "" so a later push reports the missing name properly instead
-                // of asking Telegram to register an empty one.
-                pushShortName = shortName.ifBlank { null },
-                sourceUrl = null,
-                title = title,
-                publisher = "You",
-                stickerCount = items.size,
-                isAnimatedPack = false,
-                status = PackStatus.Building.name,
-                errorMessage = null,
-                warningMessage = null,
-                trayIconPath = null,
-                isPinned = false,
-                whatsappAdded = false,
-                createdAtMillis = now,
-                updatedAtMillis = now,
-            ),
-        )
-        stickerDao.upsertAll(
-            items.mapIndexed { index, item ->
-                StickerEntity(
-                    packId = packId,
-                    remoteId = null,
-                    position = index,
-                    emojis = item.emoji,
-                    sniffedContentType = null,
-                    sourceLocalUri = item.uri,
-                    isVideo = item.kind == PickedMediaKind.Video,
-                    originalFilePath = null,
-                    convertedWhatsappPath = null,
-                    convertedTelegramPath = null,
-                    conversionStatus = "Pending",
-                    conversionError = null,
-                    trimStartMs = item.trimStartMs,
-                    trimDurationMs = item.trimDurationMs,
-                    cropLeft = item.crop?.left,
-                    cropTop = item.crop?.top,
-                    cropRight = item.crop?.right,
-                    cropBottom = item.crop?.bottom,
-                )
-            },
-        )
+        database.withTransaction {
+            packDao.upsert(
+                PackEntity(
+                    id = packId,
+                    origin = PackOrigin.Created.name,
+                    telegramSetName = null,
+                    // Blank means the pack was created for WhatsApp only, so it
+                    // has no Telegram identity at all. Stored as null rather than
+                    // "" so a later push reports the missing name properly instead
+                    // of asking Telegram to register an empty one.
+                    pushShortName = shortName.ifBlank { null },
+                    sourceUrl = null,
+                    title = title,
+                    publisher = "You",
+                    stickerCount = items.size,
+                    isAnimatedPack = false,
+                    status = PackStatus.Building.name,
+                    errorMessage = null,
+                    warningMessage = null,
+                    trayIconPath = null,
+                    isPinned = false,
+                    whatsappAdded = false,
+                    createdAtMillis = now,
+                    updatedAtMillis = now,
+                ),
+            )
+            stickerDao.upsertAll(
+                items.mapIndexed { index, item ->
+                    StickerEntity(
+                        packId = packId,
+                        remoteId = null,
+                        position = index,
+                        emojis = item.emoji,
+                        sniffedContentType = null,
+                        sourceLocalUri = item.uri,
+                        isVideo = item.kind == PickedMediaKind.Video,
+                        originalFilePath = null,
+                        convertedWhatsappPath = null,
+                        convertedTelegramPath = null,
+                        conversionStatus = "Pending",
+                        conversionError = null,
+                        trimStartMs = item.trimStartMs,
+                        trimDurationMs = item.trimDurationMs,
+                        cropLeft = item.crop?.left,
+                        cropTop = item.crop?.top,
+                        cropRight = item.crop?.right,
+                        cropBottom = item.crop?.bottom,
+                    )
+                },
+            )
+        }
         return packId
+    }
+
+    /** Removes a Create row that never reached the foreground service. The
+     * sticker recipes still point at preparation-cache inputs owned by the
+     * caller, so unlike conversion cleanup this deliberately touches no
+     * files and lets the same submission retry safely. */
+    suspend fun discardUnstartedCreatedPack(packId: String): Boolean = database.withTransaction {
+        val pack = packDao.getPack(packId) ?: return@withTransaction false
+        if (pack.origin != PackOrigin.Created.name || pack.status != PackStatus.Building.name) {
+            return@withTransaction false
+        }
+        packDao.delete(packId)
+        true
     }
 
     fun publishPack(
@@ -1581,7 +1610,13 @@ class StickerPackRepository(private val appContext: Context) {
             val cacheFile = File(packDir, "original/${sticker.rowId}.bin")
             if (uriString != null && copyUriToFile(uriString, cacheFile)) {
                 localFiles.add(sticker to cacheFile)
-                updateStickerByRowId(sticker.rowId) { it.copy(originalFilePath = cacheFile.absolutePath) }
+                updateStickerByRowId(sticker.rowId) {
+                    it.copy(
+                        sourceLocalUri = Uri.fromFile(cacheFile).toString(),
+                        originalFilePath = cacheFile.absolutePath,
+                    )
+                }
+                deletePreparedInput(uriString)
             } else {
                 updateStickerByRowId(sticker.rowId) {
                     it.copy(conversionStatus = "Failed", conversionError = appContext.getString(R.string.err_could_not_read_sticker_media))
@@ -2439,13 +2474,33 @@ class StickerPackRepository(private val appContext: Context) {
     }
 
     private fun copyUriToFile(uriString: String, output: File): Boolean = try {
+        val uri = Uri.parse(uriString)
+        if (uri.scheme == "file") {
+            val source = uri.path?.let(::File)
+            if (source != null && source.canonicalFile == output.canonicalFile) {
+                return source.isFile && source.length() > 0L
+            }
+        }
         output.parentFile?.mkdirs()
-        val opened = appContext.contentResolver.openInputStream(Uri.parse(uriString))?.use { input ->
+        val opened = appContext.contentResolver.openInputStream(uri)?.use { input ->
             output.outputStream().use { out -> input.copyTo(out) }
         }
         opened != null
     } catch (_: Exception) {
         false
+    }
+
+    /** Reclaims only coordinator-owned temporary input after it has been
+     * staged into a pack. Durable pack files and arbitrary file URIs are never
+     * touched. */
+    private fun deletePreparedInput(uriString: String) {
+        val uri = Uri.parse(uriString)
+        if (uri.scheme != "file") return
+        val root = runCatching { File(appContext.cacheDir, "picked").canonicalFile }.getOrNull()
+            ?: return
+        val file = uri.path?.let(::File)?.let { runCatching { it.canonicalFile }.getOrNull() }
+            ?: return
+        if (file.path.startsWith(root.path + File.separator)) file.delete()
     }
 
     private suspend fun updatePack(packId: String, transform: (PackEntity) -> PackEntity) {
