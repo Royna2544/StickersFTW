@@ -1,6 +1,8 @@
 package com.royna.stickersftw.ui.components
 
+import android.app.Activity
 import android.content.Intent
+import androidx.annotation.StringRes
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -56,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -522,6 +526,14 @@ fun PackListCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                Spacer(Modifier.height(7.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    WhatsappFreshnessBadge(pack.whatsappFreshness)
+                    TelegramFreshnessBadge(pack.telegramFreshness)
+                }
                 if (activeProgress != null) {
                     Spacer(Modifier.height(9.dp))
                     LinearProgressIndicator(
@@ -807,31 +819,55 @@ fun SuccessBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-/** Shared "Add to WhatsApp" action: launches WhatsApp's ENABLE_STICKER_PACK
- * confirm dialog and always re-checks the real whitelist state afterward
- * (WhatsApp's result code alone isn't reliable), used by both
- * ConversionScreen and PackDetailScreen. */
+/** Shared Add/refresh action for WhatsApp's ENABLE_STICKER_PACK dialog.
+ * The displayed content revision and exact consumer/business target are
+ * captured before launch. The owner uses a confirmed result for targeted
+ * acknowledgement (which re-checks the real whitelist) and a cancelled result
+ * for passive presence refresh. */
 @Composable
 fun AddToWhatsAppButton(
     enabled: Boolean,
     whatsappAvailable: Boolean,
+    expectedRevision: Int,
+    business: Boolean,
     onBuildIntent: () -> Intent?,
-    onResult: () -> Unit,
+    onResult: (confirmed: Boolean, expectedRevision: Int, business: Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    @StringRes labelRes: Int = R.string.action_add_to_whatsapp,
 ) {
+    var pendingRevision by rememberSaveable { mutableStateOf<Int?>(null) }
+    var pendingBusiness by rememberSaveable { mutableStateOf<Boolean?>(null) }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
-    ) { onResult() }
+    ) { result ->
+        val launchedRevision = pendingRevision
+        val launchedBusiness = pendingBusiness
+        pendingRevision = null
+        pendingBusiness = null
+        if (launchedRevision != null && launchedBusiness != null) {
+            onResult(
+                result.resultCode == Activity.RESULT_OK,
+                launchedRevision,
+                launchedBusiness,
+            )
+        }
+    }
 
     Column(modifier = modifier) {
         Button(
-            onClick = { onBuildIntent()?.let { launcher.launch(it) } },
+            onClick = {
+                onBuildIntent()?.let { intent ->
+                    pendingRevision = expectedRevision
+                    pendingBusiness = business
+                    launcher.launch(intent)
+                }
+            },
             enabled = enabled && whatsappAvailable,
             colors = appButtonColors(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(Icons.Rounded.Workspaces, contentDescription = null)
-            Text(stringResource(R.string.action_add_to_whatsapp))
+            Text(stringResource(labelRes))
         }
         if (!whatsappAvailable) {
             Text(

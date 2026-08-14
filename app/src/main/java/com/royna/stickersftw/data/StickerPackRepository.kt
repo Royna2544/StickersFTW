@@ -34,7 +34,10 @@ import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 import com.royna.stickersftw.model.StickerGridItem
 import com.royna.stickersftw.model.StickerPack
+import com.royna.stickersftw.model.deriveTelegramFreshness
+import com.royna.stickersftw.model.deriveWhatsappFreshness
 import com.royna.stickersftw.model.parseStickerEmojis
+import com.royna.stickersftw.model.TelegramFreshnessState
 import com.royna.stickersftw.model.TelegramPushState
 import com.royna.stickersftw.network.ApiResult
 import com.royna.stickersftw.network.TelegramBackend
@@ -79,6 +82,17 @@ internal fun normalizeStickerEmojis(emojis: List<String>): String {
         .take(SizeBudget.MAX_EMOJIS)
     return (normalized.ifEmpty { listOf(SizeBudget.FALLBACK_EMOJI) }).joinToString(",")
 }
+
+/** Combines consumer and Business provider answers without letting a known
+ * `false` from one client hide a known `true` from the other. */
+internal fun combineWhatsappWhitelistStates(consumer: Boolean?, business: Boolean?): Boolean? = when {
+    consumer == true || business == true -> true
+    consumer == false && business == false -> false
+    else -> consumer ?: business
+}
+
+internal fun canFinalizePublish(expectedRevision: Int?, currentRevision: Int): Boolean =
+    expectedRevision == null || expectedRevision == currentRevision
 
 /** Returns a complete requested order only when it names every current row
  * exactly once. Kept pure so drag/drop validation can be pinned by JVM tests. */
@@ -1445,7 +1459,7 @@ class StickerPackRepository(private val appContext: Context) {
 
         val dropped = items.size - added
         updatePack(packId) {
-            it.copy(
+            it.bumpRevision().copy(
                 stickerCount = existingUsable + added,
                 warningMessage = if (dropped > 0) {
                     appContext.resources.getQuantityString(R.plurals.warn_stickers_dropped, dropped, dropped)
@@ -1453,9 +1467,6 @@ class StickerPackRepository(private val appContext: Context) {
                     null
                 },
                 errorMessage = null,
-                // Same reason as finalizePackReady: without this WhatsApp keeps
-                // serving the cached pack and the new stickers never appear.
-                imageDataVersion = it.imageDataVersion + 1,
             )
         }
 
@@ -1532,9 +1543,27 @@ class StickerPackRepository(private val appContext: Context) {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
             return@flow
         }
+        val publishRevision = pack.imageDataVersion
         val stickers = stickerDao.getStickersOnce(packId)
         if (stickers.isEmpty()) {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_no_stickers)))
+            return@flow
+        }
+        if (
+            pushToTelegram &&
+            deriveTelegramFreshness(
+                origin = PackOrigin.valueOf(pack.origin),
+                imageDataVersion = pack.imageDataVersion,
+                syncedDataVersion = pack.telegramSyncedDataVersion,
+                hasTelegramSet = pack.telegramSetName != null,
+                pushedStickerCount = stickers.count { it.convertedTelegramPath != null },
+                totalStickerCount = stickers.size,
+            ) == TelegramFreshnessState.OutOfDate
+        ) {
+            // This release can create/retry a set, but cannot replace remote
+            // stickers. Appending current rows to a stale set would silently
+            // mix two local revisions, so enforce the UI rule here too.
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_telegram_set_out_of_date)))
             return@flow
         }
 
@@ -1716,9 +1745,13 @@ class StickerPackRepository(private val appContext: Context) {
                                     is PushOneResult.Success -> {
                                         telegramPushedFullName = pushResult.fullName
                                         telegramPushedCount++
-                                        updateStickerByRowId(sticker.rowId) {
-                                            it.copy(convertedTelegramPath = convertResult.convertedPath)
-                                        }
+                                        persistTelegramPushSuccess(
+                                            packId = packId,
+                                            rowId = sticker.rowId,
+                                            convertedPath = convertResult.convertedPath,
+                                            fullSetName = pushResult.fullName,
+                                            representedRevision = publishRevision,
+                                        )
                                     }
                                     is PushOneResult.Failed -> {
                                         telegramFailedCount++
@@ -1730,9 +1763,6 @@ class StickerPackRepository(private val appContext: Context) {
                                 }
                             }
                         }
-                    }
-                    telegramPushedFullName?.let {
-                        packDao.setTelegramSetName(packId, it, System.currentTimeMillis())
                     }
                     if (telegramFailedCount > 0 && telegramPushedCount > 0) {
                         telegramPushWarning = appContext.getString(
@@ -1746,7 +1776,10 @@ class StickerPackRepository(private val appContext: Context) {
             }
         }
 
-        when {
+        val acknowledgeTelegramAtFinalize = pushToTelegram &&
+            telegramPushedFullName != null &&
+            telegramPushedCount > 0
+        val finalizedRevision = when {
             addToWhatsapp && whatsappConvertedCount > 0 -> {
                 emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_building_tray_icon), 0.92f))
                 val trayFile = File(packDir, "tray.webp")
@@ -1766,10 +1799,21 @@ class StickerPackRepository(private val appContext: Context) {
                     telegramPushWarning,
                     bias,
                     trayStickerRowId = firstConvertedSticker?.rowId.takeIf { trayReady },
+                    expectedRevision = publishRevision,
+                    acknowledgeTelegram = acknowledgeTelegramAtFinalize,
                 )
             }
             pushToTelegram && telegramPushedFullName != null -> {
-                finalizePackReady(packId, packIsAnimated, pack.trayIconPath, telegramPushWarning, bias)
+                finalizePackReady(
+                    packId,
+                    packIsAnimated,
+                    pack.trayIconPath,
+                    telegramPushWarning,
+                    bias,
+                    bumpContentRevision = false,
+                    expectedRevision = publishRevision,
+                    acknowledgeTelegram = acknowledgeTelegramAtFinalize,
+                )
             }
             else -> {
                 val reason = telegramPushWarning ?: appContext.getString(R.string.err_nothing_published)
@@ -1779,6 +1823,14 @@ class StickerPackRepository(private val appContext: Context) {
             }
         }
 
+        if (finalizedRevision == null) {
+            // A local edit won the race. The Telegram set name (when one was
+            // created) already carries the revision actually pushed, but the
+            // newer local pack must neither be overwritten nor acknowledged.
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_nothing_published)))
+            return@flow
+        }
+
         emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_done), 1f))
         emit(PackOperationProgress.Complete(packId))
     }.catch { e ->
@@ -1786,6 +1838,32 @@ class StickerPackRepository(private val appContext: Context) {
         finalizePackFailed(packId, message)
         emit(PackOperationProgress.Failed(message))
     }.flowOn(Dispatchers.IO)
+
+    /** Commits the first successful remote sticker's marker together with the
+     * set identity and represented revision. A process death can therefore
+     * leave neither write, never a marker that retry mistakes for a known set.
+     * If a concurrent edit removed the row, the identity still commits with
+     * the old represented revision, making the pack OutOfDate instead of
+     * retryable against an unknown remote set. */
+    internal suspend fun persistTelegramPushSuccess(
+        packId: String,
+        rowId: Long,
+        convertedPath: String,
+        fullSetName: String,
+        representedRevision: Int,
+    ): Boolean = database.withTransaction {
+        packDao.getPack(packId) ?: return@withTransaction false
+        val sticker = stickerDao.findByRowIdInPack(packId, rowId)
+        packDao.setTelegramSetName(
+            id = packId,
+            fullName = fullSetName,
+            representedRevision = representedRevision,
+            now = System.currentTimeMillis(),
+        )
+        if (sticker == null) return@withTransaction false
+        stickerDao.upsert(sticker.copy(convertedTelegramPath = convertedPath))
+        true
+    }
 
     // ---- Shared pack management --------------------------------------------
 
@@ -1972,12 +2050,59 @@ class StickerPackRepository(private val appContext: Context) {
     }
 
     suspend fun refreshWhatsappAdded(id: String) {
-        val authority = WhatsAppContract.authorityFor(appContext)
-        val added = WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, id, business = false)
-            ?: WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, id, business = true)
-        if (added != null) {
+        readWhatsappWhitelistState(id)?.let { added ->
+            // Passive discovery updates presence only. In particular, seeing
+            // an edited pack still whitelisted must leave its old revision
+            // acknowledgement stale.
             packDao.setWhatsappAdded(id, added)
         }
+    }
+
+    suspend fun refreshWhatsappAdded(ids: Collection<String>) {
+        ids.distinct().forEach { refreshWhatsappAdded(it) }
+    }
+
+    /** Acknowledges the exact revision accepted by an explicit
+     * Add-to-WhatsApp flow. The activity result itself is not trustworthy, so
+     * the launched client's whitelist and captured revision are both checked
+     * before advancing the acknowledgement. */
+    suspend fun acknowledgeWhatsappInstall(
+        packId: String,
+        expectedRevision: Int,
+        business: Boolean,
+    ): Boolean {
+        val authority = WhatsAppContract.authorityFor(appContext)
+        return when (WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, packId, business)) {
+            true -> acknowledgeWhitelistedWhatsappInstall(packId, expectedRevision)
+            false, null -> {
+                // A canceled/unknown result for the launched target says
+                // nothing about the other WhatsApp client. Recompute combined
+                // passive presence instead of erasing it.
+                refreshWhatsappAdded(packId)
+                false
+            }
+        }
+    }
+
+    internal suspend fun acknowledgeWhitelistedWhatsappInstall(
+        packId: String,
+        expectedRevision: Int,
+    ): Boolean {
+        val acknowledged = packDao.acknowledgeWhatsappInstall(packId, expectedRevision) > 0
+        if (!acknowledged) {
+            // WhatsApp did accept the launched pack, but local content changed
+            // while its activity was open. Preserve presence without claiming
+            // the later revision was transferred.
+            packDao.setWhatsappAdded(packId, true)
+        }
+        return acknowledged
+    }
+
+    private suspend fun readWhatsappWhitelistState(id: String): Boolean? {
+        val authority = WhatsAppContract.authorityFor(appContext)
+        val consumer = WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, id, business = false)
+        val business = WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, id, business = true)
+        return combineWhatsappWhitelistStates(consumer, business)
     }
 
     fun buildAddToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent =
@@ -1992,6 +2117,8 @@ class StickerPackRepository(private val appContext: Context) {
 
     private fun PackWithStickers.toUiModel(): StickerPack {
         val sortedStickers = stickers.sortedBy { it.position }
+        val origin = PackOrigin.valueOf(pack.origin)
+        val telegramPushedCount = sortedStickers.count { it.convertedTelegramPath != null }
         return StickerPack(
             id = pack.id,
             // Also scrubbed on the way in, but rows written before that was
@@ -1999,9 +2126,10 @@ class StickerPackRepository(private val appContext: Context) {
             // keep garbling the UI around it forever.
             title = sanitizeTitle(pack.title),
             author = pack.publisher,
-            origin = PackOrigin.valueOf(pack.origin),
+            origin = origin,
             stickerCount = pack.stickerCount,
             isAnimated = pack.isAnimatedPack,
+            imageDataVersion = pack.imageDataVersion,
             isPinned = pack.isPinned,
             updatedLabel = formatUpdatedLabel(pack.updatedAtMillis),
             sourceUrl = pack.sourceUrl,
@@ -2034,6 +2162,19 @@ class StickerPackRepository(private val appContext: Context) {
                         TelegramPushState.Pushed(fullName)
                     }
                 } ?: TelegramPushState.NotPushed,
+            whatsappFreshness = deriveWhatsappFreshness(
+                whatsappAdded = pack.whatsappAdded,
+                imageDataVersion = pack.imageDataVersion,
+                syncedDataVersion = pack.whatsappSyncedDataVersion,
+            ),
+            telegramFreshness = deriveTelegramFreshness(
+                origin = origin,
+                imageDataVersion = pack.imageDataVersion,
+                syncedDataVersion = pack.telegramSyncedDataVersion,
+                hasTelegramSet = pack.telegramSetName != null,
+                pushedStickerCount = telegramPushedCount,
+                totalStickerCount = sortedStickers.size,
+            ),
             updateAvailable = pack.updateAvailable,
             telegramSetName = if (pack.origin == PackOrigin.Imported.name) pack.telegramSetName else null,
             importPartIndex = pack.importPartIndex,
@@ -2143,9 +2284,17 @@ class StickerPackRepository(private val appContext: Context) {
         ) : PendingPackEdit
     }
 
+    private fun PackEntity.telegramRevisionBeforeMutation(): Int? =
+        telegramSyncedDataVersion ?: imageDataVersion.takeIf {
+            origin == PackOrigin.Created.name && telegramSetName != null
+        }
+
     private fun PackEntity.syncSnapshot() = TargetSyncSnapshot(
         whatsappWasCurrent = whatsappSyncedDataVersion == imageDataVersion,
-        telegramWasCurrent = telegramSyncedDataVersion == imageDataVersion,
+        // A legacy partial push has no stored stamp, but while the local pack
+        // is still unedited its remote subset necessarily represents this
+        // revision. Capturing that lets an undo restore Partial, not dirty.
+        telegramWasCurrent = telegramRevisionBeforeMutation() == imageDataVersion,
     )
 
     /** Revisions never move backwards, including undo. If the target matched
@@ -2164,7 +2313,7 @@ class StickerPackRepository(private val appContext: Context) {
             telegramSyncedDataVersion = if (restoring?.telegramWasCurrent == true) {
                 next
             } else {
-                telegramSyncedDataVersion
+                telegramRevisionBeforeMutation()
             },
         )
     }
@@ -2308,7 +2457,7 @@ class StickerPackRepository(private val appContext: Context) {
         updatePack(packId) { it.copy(status = PackStatus.Failed.name, errorMessage = message) }
     }
 
-    private suspend fun finalizePackReady(
+    internal suspend fun finalizePackReady(
         packId: String,
         isAnimated: Boolean,
         trayIconPath: String?,
@@ -2321,25 +2470,42 @@ class StickerPackRepository(private val appContext: Context) {
         /** Updated only when this operation successfully rendered a new tray.
          * Telegram-only publishes retain the user's existing choice. */
         trayStickerRowId: Long? = null,
-    ) {
-        updatePack(packId) {
-            it.copy(
+        /** Telegram bookkeeping does not change anything served locally or
+         * invalidate an otherwise-current WhatsApp installation. */
+        bumpContentRevision: Boolean = true,
+        /** Publish operations snapshot their input revision. Imports do not
+         * expose concurrent local mutations and leave this unset. */
+        expectedRevision: Int? = null,
+        /** The remote push succeeded for at least one sticker. Fold its final
+         * revision acknowledgement into this same commit as any local bump. */
+        acknowledgeTelegram: Boolean = false,
+    ): Int? = database.withTransaction {
+        val current = packDao.getPack(packId) ?: return@withTransaction null
+        if (!canFinalizePublish(expectedRevision, current.imageDataVersion)) {
+            return@withTransaction null
+        }
+        val revisioned = if (bumpContentRevision) current.bumpRevision() else current
+        val updated = revisioned.copy(
                 status = PackStatus.Ready.name,
+                updatedAtMillis = System.currentTimeMillis(),
                 isAnimatedPack = isAnimated,
-                stickerCount = stickerCount ?: it.stickerCount,
-                trayIconPath = trayIconPath ?: it.trayIconPath,
-                trayStickerRowId = trayStickerRowId ?: it.trayStickerRowId,
+                stickerCount = stickerCount ?: current.stickerCount,
+                trayIconPath = trayIconPath ?: current.trayIconPath,
+                trayStickerRowId = trayStickerRowId ?: current.trayStickerRowId,
                 warningMessage = warning,
                 errorMessage = null,
                 // Only meaningful for an animated pack: the knob picks how
                 // far the encoder may trade quality for frames, and a static
                 // sticker has no frames to trade.
                 conversionBias = bias?.name.takeIf { isAnimated },
-                // Every path that rebuilds a pack's converted files ends here,
-                // which makes this the one place the cache key has to move.
-                imageDataVersion = it.imageDataVersion + 1,
             )
+        val committed = if (acknowledgeTelegram && updated.telegramSetName != null) {
+            updated.copy(telegramSyncedDataVersion = updated.imageDataVersion)
+        } else {
+            updated
         }
+        packDao.upsert(committed)
+        committed.imageDataVersion
     }
 
     private suspend fun updateStickerByRemoteId(

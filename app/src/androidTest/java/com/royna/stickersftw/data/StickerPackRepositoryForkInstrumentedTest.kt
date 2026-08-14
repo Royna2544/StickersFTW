@@ -199,7 +199,15 @@ class StickerPackRepositoryForkInstrumentedTest {
             assertTrue(forkWhatsapp.path.startsWith(forkPrefix))
             assertNotEquals(File(sourceRow.originalFilePath!!).canonicalPath, forkOriginal.path)
             assertNotEquals(File(sourceRow.convertedWhatsappPath!!).canonicalPath, forkWhatsapp.path)
-            assertEquals(Uri.fromFile(forkOriginal).toString(), forkRow.sourceLocalUri)
+            val forkSourceUri = Uri.parse(requireNotNull(forkRow.sourceLocalUri))
+            assertEquals("file", forkSourceUri.scheme)
+            val forkSourceFile = File(requireNotNull(forkSourceUri.path)).canonicalFile
+            // Android may spell the same app-private inode through either
+            // /data/data or /data/user/0. Compare canonical files instead of
+            // requiring those equivalent URI strings to use one alias.
+            assertEquals(forkOriginal.path, forkSourceFile.path)
+            assertTrue(forkSourceFile.path.startsWith(forkPrefix))
+            assertNotEquals(sourceRow.sourceLocalUri, forkRow.sourceLocalUri)
             assertArrayEquals(sourceBytes.getValue(sourceRow.rowId).first, forkOriginal.readBytes())
             assertArrayEquals(sourceBytes.getValue(sourceRow.rowId).second, forkWhatsapp.readBytes())
         }

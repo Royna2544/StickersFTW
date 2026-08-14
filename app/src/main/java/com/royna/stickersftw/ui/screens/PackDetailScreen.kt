@@ -62,24 +62,27 @@ import com.royna.stickersftw.model.ConversionBias
 import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.StickerPack
-import com.royna.stickersftw.model.TelegramPushState
+import com.royna.stickersftw.model.TelegramFreshnessState
+import com.royna.stickersftw.model.WhatsappFreshnessState
 import com.royna.stickersftw.ui.components.AddToWhatsAppButton
 import com.royna.stickersftw.ui.components.DeleteTelegramPackConfirmDialog
 import com.royna.stickersftw.ui.components.NeutralBadge
 import com.royna.stickersftw.ui.components.PackStatusChip
 import com.royna.stickersftw.ui.components.StickerThumbnail
-import com.royna.stickersftw.ui.components.SuccessBadge
+import com.royna.stickersftw.ui.components.TelegramFreshnessBadge
+import com.royna.stickersftw.ui.components.WhatsappFreshnessBadge
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PackDetailScreen(
     pack: StickerPack?,
     whatsappAvailable: Boolean,
+    whatsappBusiness: Boolean,
     onBack: () -> Unit,
     onTogglePinned: (String) -> Unit,
     onDelete: (String) -> Unit,
     onBuildWhatsappIntent: () -> Intent?,
-    onWhatsappResult: () -> Unit,
+    onWhatsappResult: (confirmed: Boolean, expectedRevision: Int, business: Boolean) -> Unit,
     onRefreshWhatsapp: (String) -> Unit,
     onPushToTelegram: (String) -> Unit,
     onDeleteFromTelegram: (packId: String, onDone: (success: Boolean, error: String?) -> Unit) -> Unit = { _, _ -> },
@@ -224,29 +227,49 @@ fun PackDetailScreen(
             }
 
             if (pack.status == PackStatus.Ready) {
-                AddToWhatsAppButton(
-                    enabled = true,
-                    whatsappAvailable = whatsappAvailable,
-                    onBuildIntent = onBuildWhatsappIntent,
-                    onResult = onWhatsappResult,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            val telegramPushState = pack.telegramPushState
-            if (pack.origin == PackOrigin.Created && telegramPushState !is TelegramPushState.Pushed) {
-                androidx.compose.material3.Button(
-                    onClick = { onPushToTelegram(pack.id) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null)
-                    Text(
-                        if (telegramPushState is TelegramPushState.Partial) {
-                            stringResource(R.string.action_finish_push_to_telegram)
+                when (pack.whatsappFreshness) {
+                    WhatsappFreshnessState.NotAdded,
+                    WhatsappFreshnessState.NeedsRefresh -> AddToWhatsAppButton(
+                        enabled = true,
+                        whatsappAvailable = whatsappAvailable,
+                        expectedRevision = pack.imageDataVersion,
+                        business = whatsappBusiness,
+                        onBuildIntent = onBuildWhatsappIntent,
+                        onResult = onWhatsappResult,
+                        modifier = Modifier.fillMaxWidth(),
+                        labelRes = if (pack.whatsappFreshness == WhatsappFreshnessState.NeedsRefresh) {
+                            R.string.action_refresh_whatsapp_pack
                         } else {
-                            stringResource(R.string.action_push_to_telegram)
+                            R.string.action_add_to_whatsapp
                         },
                     )
+                    WhatsappFreshnessState.Current -> Unit
+                }
+            }
+
+            val telegramFreshness = pack.telegramFreshness
+            if (pack.origin == PackOrigin.Created) {
+                when (telegramFreshness) {
+                    TelegramFreshnessState.NotPushed,
+                    TelegramFreshnessState.Partial -> androidx.compose.material3.Button(
+                        onClick = { onPushToTelegram(pack.id) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null)
+                        Text(
+                            stringResource(
+                                if (telegramFreshness == TelegramFreshnessState.Partial) {
+                                    R.string.action_finish_push_to_telegram
+                                } else {
+                                    R.string.action_push_to_telegram
+                                },
+                            ),
+                        )
+                    }
+                    // This release reports drift but deliberately offers no
+                    // push/update action for an existing Telegram set.
+                    TelegramFreshnessState.Current,
+                    TelegramFreshnessState.OutOfDate -> Unit
                 }
             }
 
@@ -258,7 +281,7 @@ fun PackDetailScreen(
                 Text(stringResource(R.string.action_delete_local_pack))
             }
 
-            if (pack.origin == PackOrigin.Created && telegramPushState !is TelegramPushState.NotPushed) {
+            if (pack.origin == PackOrigin.Created && telegramFreshness != TelegramFreshnessState.NotPushed) {
                 OutlinedButton(
                     onClick = { showDeleteTelegramConfirm = true },
                     enabled = !deletingFromTelegram,
@@ -426,14 +449,8 @@ private fun PackHeroCard(pack: StickerPack) {
                         icon = Icons.Rounded.Tune,
                     )
                 }
-                if (pack.whatsappAdded == true) SuccessBadge(stringResource(R.string.badge_added_to_whatsapp))
-                when (val telegramState = pack.telegramPushState) {
-                    is TelegramPushState.Pushed -> SuccessBadge(stringResource(R.string.badge_on_telegram))
-                    is TelegramPushState.Partial -> SuccessBadge(
-                        stringResource(R.string.badge_on_telegram_partial, telegramState.pushedCount, telegramState.totalCount),
-                    )
-                    is TelegramPushState.NotPushed -> Unit
-                }
+                WhatsappFreshnessBadge(pack.whatsappFreshness)
+                TelegramFreshnessBadge(pack.telegramFreshness)
             }
             Spacer(Modifier.height(12.dp))
             Text(

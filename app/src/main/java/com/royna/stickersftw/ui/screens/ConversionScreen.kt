@@ -59,12 +59,14 @@ fun ConversionScreen(
     pack: StickerPack?,
     state: ConversionUiState,
     whatsappAvailable: Boolean,
+    whatsappBusiness: Boolean,
     onBack: () -> Unit,
     onOpenPacks: () -> Unit,
     onBuildWhatsappIntent: () -> Intent?,
-    onWhatsappResult: () -> Unit,
+    onWhatsappResult: (confirmed: Boolean, expectedRevision: Int, business: Boolean) -> Unit,
     splitPack: StickerPack? = null,
     onBuildSplitWhatsappIntent: () -> Intent? = { null },
+    onSplitWhatsappResult: (confirmed: Boolean, expectedRevision: Int, business: Boolean) -> Unit = { _, _, _ -> },
     showConvertOtherParts: Boolean = false,
     onConvertOtherParts: () -> Unit = {},
     onRunInBackground: () -> Unit = {},
@@ -274,13 +276,17 @@ fun ConversionScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                     }
-                    AddToWhatsAppButton(
-                        enabled = true,
-                        whatsappAvailable = whatsappAvailable,
-                        onBuildIntent = onBuildWhatsappIntent,
-                        onResult = onWhatsappResult,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    if (pack != null) {
+                        AddToWhatsAppButton(
+                            enabled = true,
+                            whatsappAvailable = whatsappAvailable,
+                            expectedRevision = pack.imageDataVersion,
+                            business = whatsappBusiness,
+                            onBuildIntent = onBuildWhatsappIntent,
+                            onResult = onWhatsappResult,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     if (splitPack != null) {
                         Spacer(Modifier.height(14.dp))
                         Text(
@@ -292,8 +298,10 @@ fun ConversionScreen(
                         AddToWhatsAppButton(
                             enabled = true,
                             whatsappAvailable = whatsappAvailable,
+                            expectedRevision = splitPack.imageDataVersion,
+                            business = whatsappBusiness,
                             onBuildIntent = onBuildSplitWhatsappIntent,
-                            onResult = onWhatsappResult,
+                            onResult = onSplitWhatsappResult,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

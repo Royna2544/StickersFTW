@@ -31,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -160,6 +161,7 @@ fun StickersFtwApp(
     val forceRefreshUpdateFoundMessage = stringResource(R.string.force_refresh_update_found)
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val packs by viewModel.packs.collectAsStateWithLifecycle()
+    val currentPackIds = packs.map(StickerPack::id)
     val installedApps by viewModel.installedApps.collectAsStateWithLifecycle()
     val conversion by viewModel.conversion.collectAsStateWithLifecycle()
     val importPreview by viewModel.importPreview.collectAsStateWithLifecycle()
@@ -183,6 +185,14 @@ fun StickersFtwApp(
     var pendingRemixUndoPackId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingRemixUndoKind by rememberSaveable { mutableStateOf<String?>(null) }
     val remixFailedMessage = stringResource(R.string.remix_pack_failed)
+
+    // WhatsApp can remove packs while FTW is in the background. Re-check
+    // presence whenever the app resumes; this is passive and never advances
+    // the revision acknowledged by an explicit Add-to-WhatsApp result.
+    LifecycleResumeEffect(currentPackIds) {
+        if (currentPackIds.isNotEmpty()) viewModel.refreshWhatsappAdded(currentPackIds)
+        onPauseOrDispose { }
+    }
 
     suspend fun requestRemixName(packTitle: String): String? {
         if (remixPrompt != null) return null
@@ -520,6 +530,7 @@ fun StickersFtwApp(
                 PackDetailScreen(
                     pack = pack,
                     whatsappAvailable = whatsappAvailable,
+                    whatsappBusiness = useBusinessWhatsapp,
                     onBack = { navController.popBackStack() },
                     onTogglePinned = viewModel::togglePinned,
                     onDelete = {
@@ -529,7 +540,19 @@ fun StickersFtwApp(
                     onBuildWhatsappIntent = {
                         pack?.let { viewModel.addToWhatsappIntent(it.id, it.title, useBusinessWhatsapp) }
                     },
-                    onWhatsappResult = { pack?.let { viewModel.refreshWhatsappAdded(it.id) } },
+                    onWhatsappResult = { confirmed, expectedRevision, launchedBusiness ->
+                        pack?.let {
+                            if (confirmed) {
+                                viewModel.acknowledgeWhatsappInstall(
+                                    it.id,
+                                    expectedRevision,
+                                    launchedBusiness,
+                                )
+                            } else {
+                                viewModel.refreshWhatsappAdded(it.id)
+                            }
+                        }
+                    },
                     onRefreshWhatsapp = viewModel::refreshWhatsappAdded,
                     onPushToTelegram = { packId ->
                         if (viewModel.startPublish(packId, pushToTelegram = true, addToWhatsapp = false)) {
@@ -779,8 +802,22 @@ fun StickersFtwApp(
                     pack = pack,
                     state = conversion,
                     splitPack = splitPack,
+                    whatsappBusiness = useBusinessWhatsapp,
                     onBuildSplitWhatsappIntent = {
                         splitPack?.let { viewModel.addToWhatsappIntent(it.id, it.title, useBusinessWhatsapp) }
+                    },
+                    onSplitWhatsappResult = { confirmed, expectedRevision, launchedBusiness ->
+                        splitPack?.let {
+                            if (confirmed) {
+                                viewModel.acknowledgeWhatsappInstall(
+                                    it.id,
+                                    expectedRevision,
+                                    launchedBusiness,
+                                )
+                            } else {
+                                viewModel.refreshWhatsappAdded(it.id)
+                            }
+                        }
                     },
                     whatsappAvailable = whatsappAvailable,
                     onBack = { navController.popBackStack() },
@@ -793,7 +830,19 @@ fun StickersFtwApp(
                     onBuildWhatsappIntent = {
                         pack?.let { viewModel.addToWhatsappIntent(it.id, it.title, useBusinessWhatsapp) }
                     },
-                    onWhatsappResult = { pack?.let { viewModel.refreshWhatsappAdded(it.id) } },
+                    onWhatsappResult = { confirmed, expectedRevision, launchedBusiness ->
+                        pack?.let {
+                            if (confirmed) {
+                                viewModel.acknowledgeWhatsappInstall(
+                                    it.id,
+                                    expectedRevision,
+                                    launchedBusiness,
+                                )
+                            } else {
+                                viewModel.refreshWhatsappAdded(it.id)
+                            }
+                        }
+                    },
                     showConvertOtherParts = showConvertOtherParts,
                     onConvertOtherParts = { navController.navigate(Routes.Import) },
                     onRunInBackground = {

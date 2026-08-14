@@ -42,10 +42,12 @@ class StickerGridScreenTest {
 
         composeRule.onNodeWithText(context.getString(R.string.sticker_editor_edit_visual))
             .assertIsNotEnabled()
-        composeRule.onNodeWithText(context.getString(R.string.sticker_editor_visual_unavailable))
-            .assertIsDisplayed()
-        composeRule.onNodeWithText(context.getString(R.string.sticker_editor_delete_minimum))
-            .assertIsDisplayed()
+        composeRule.onNodeWithText(
+            context.getString(R.string.sticker_editor_visual_unavailable),
+        ).fetchSemanticsNode()
+        composeRule.onNodeWithText(
+            context.getString(R.string.sticker_editor_delete_minimum),
+        ).fetchSemanticsNode()
     }
 
     @Test

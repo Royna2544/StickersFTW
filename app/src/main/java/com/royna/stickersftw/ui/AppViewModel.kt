@@ -535,20 +535,28 @@ class AppViewModel(
             ),
         )
 
-    /** Pull-to-refresh on My Packs: re-checks every eligible imported pack
-     * against Telegram and flags any that drifted. A no-op (but still
-     * settles the spinner) when the user has turned off pack updates in
-     * Settings, or while a check is already in flight. */
+    /** Pull-to-refresh on My Packs: passively refreshes WhatsApp presence for
+     * every local pack, then (when enabled) checks eligible imports against
+     * Telegram. A second refresh is ignored while one is in flight. */
     fun refreshMyPacks() {
         if (_isRefreshingPacks.value) return
-        if (!settings.value.updateChecksEnabled) return
         viewModelScope.launch {
             _isRefreshingPacks.value = true
             try {
-                packRepository.checkForUpdates(settings.value.backendConfig)
-            } catch (_: Exception) {
-                // Swallowed -- a failed sweep just means no dots update this
-                // time; the user can pull to refresh again.
+                try {
+                    packRepository.refreshWhatsappAdded(packs.value.map { it.id })
+                } catch (_: Exception) {
+                    // Presence is best-effort; one unavailable provider must
+                    // not prevent the independent Telegram update sweep.
+                }
+                if (settings.value.updateChecksEnabled) {
+                    try {
+                        packRepository.checkForUpdates(settings.value.backendConfig)
+                    } catch (_: Exception) {
+                        // A failed sweep just means no update dots change this
+                        // time; the user can pull to refresh again.
+                    }
+                }
             } finally {
                 _isRefreshingPacks.value = false
             }
@@ -696,6 +704,19 @@ class AppViewModel(
 
     fun refreshWhatsappAdded(packId: String) {
         viewModelScope.launch { packRepository.refreshWhatsappAdded(packId) }
+    }
+
+    fun refreshWhatsappAdded(packIds: Collection<String>) {
+        if (packIds.isEmpty()) return
+        viewModelScope.launch { packRepository.refreshWhatsappAdded(packIds) }
+    }
+
+    /** Explicit Add-to-WhatsApp result path. Unlike passive refresh, this may
+     * advance the acknowledged content revision after whitelist verification. */
+    fun acknowledgeWhatsappInstall(packId: String, expectedRevision: Int, business: Boolean) {
+        viewModelScope.launch {
+            packRepository.acknowledgeWhatsappInstall(packId, expectedRevision, business)
+        }
     }
 
     fun addToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent =

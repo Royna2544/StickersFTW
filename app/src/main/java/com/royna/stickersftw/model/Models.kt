@@ -111,6 +111,63 @@ sealed class TelegramPushState {
     data class Partial(val fullSetName: String, val pushedCount: Int, val totalCount: Int) : TelegramPushState()
 }
 
+/** Whether the content WhatsApp most recently accepted still matches the
+ * local pack revision. Detection that a pack is installed is deliberately
+ * separate from acknowledging that an Add-to-WhatsApp flow completed. */
+enum class WhatsappFreshnessState {
+    NotAdded,
+    Current,
+    NeedsRefresh,
+}
+
+/** Relationship between a Created pack and its remote Telegram set. A
+ * partially pushed pack is retryable only while its local revision has not
+ * changed; editing it makes the remote subset [OutOfDate]. */
+enum class TelegramFreshnessState {
+    NotPushed,
+    Partial,
+    Current,
+    OutOfDate,
+}
+
+internal fun deriveWhatsappFreshness(
+    whatsappAdded: Boolean,
+    imageDataVersion: Int,
+    syncedDataVersion: Int?,
+): WhatsappFreshnessState = when {
+    !whatsappAdded -> WhatsappFreshnessState.NotAdded
+    syncedDataVersion == imageDataVersion -> WhatsappFreshnessState.Current
+    else -> WhatsappFreshnessState.NeedsRefresh
+}
+
+internal fun deriveTelegramFreshness(
+    origin: PackOrigin,
+    imageDataVersion: Int,
+    syncedDataVersion: Int?,
+    hasTelegramSet: Boolean,
+    pushedStickerCount: Int,
+    totalStickerCount: Int,
+): TelegramFreshnessState {
+    if (origin != PackOrigin.Created || !hasTelegramSet) {
+        return TelegramFreshnessState.NotPushed
+    }
+    // A partial set also remembers which local revision it represents. Once
+    // that revision changes, retrying would append mismatched content.
+    if (syncedDataVersion != null && syncedDataVersion != imageDataVersion) {
+        return TelegramFreshnessState.OutOfDate
+    }
+    return if (
+        hasTelegramSet &&
+        totalStickerCount > 0 &&
+        pushedStickerCount == totalStickerCount &&
+        syncedDataVersion == imageDataVersion
+    ) {
+        TelegramFreshnessState.Current
+    } else {
+        TelegramFreshnessState.Partial
+    }
+}
+
 data class StickerPack(
     val id: String,
     val title: String,
@@ -118,6 +175,9 @@ data class StickerPack(
     val origin: PackOrigin,
     val stickerCount: Int,
     val isAnimated: Boolean,
+    /** Monotonic local content revision captured when launching an external
+     * target flow, so its result cannot acknowledge a later edit. */
+    val imageDataVersion: Int = 1,
     val isPinned: Boolean = false,
     val updatedLabel: String = "Today",
     val sourceUrl: String? = null,
@@ -129,6 +189,8 @@ data class StickerPack(
     val previewEmojis: List<String> = emptyList(),
     val whatsappAdded: Boolean? = null,
     val telegramPushState: TelegramPushState = TelegramPushState.NotPushed,
+    val whatsappFreshness: WhatsappFreshnessState = WhatsappFreshnessState.NotAdded,
+    val telegramFreshness: TelegramFreshnessState = TelegramFreshnessState.NotPushed,
     val updateAvailable: Boolean = false,
     /** The canonical Telegram set name this pack was imported from, and
      * which slice of it (-1 = hand-picked custom selection, otherwise the

@@ -183,6 +183,7 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
 
     <!-- Add to WhatsApp button -->
     <string name="action_add_to_whatsapp">  Add to WhatsApp</string>
+    <string name="action_refresh_whatsapp_pack">  Refresh WhatsApp</string>
     <string name="whatsapp_not_installed">WhatsApp isn\'t installed on this device.</string>
 
     <!-- Create pack screen -->
@@ -216,9 +217,14 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="action_delete_from_telegram_and_local">  Delete from Telegram and local</string>
     <string name="delete_telegram_pack_title">Delete from Telegram?</string>
     <string name="delete_telegram_pack_message">\"%1$s\" will be permanently deleted from Telegram, along with its local copy. This can\'t be undone.</string>
-    <string name="badge_added_to_whatsapp">Added to WhatsApp</string>
-    <string name="badge_on_telegram">On Telegram</string>
-    <string name="badge_on_telegram_partial">On Telegram (%1$d/%2$d)</string>
+    <string name="freshness_whatsapp_not_added">WhatsApp · Not added</string>
+    <string name="freshness_whatsapp_current">WhatsApp · Current</string>
+    <string name="freshness_whatsapp_needs_refresh">WhatsApp · Needs refresh</string>
+    <string name="freshness_telegram_not_pushed">Telegram · Not pushed</string>
+    <string name="freshness_telegram_partial">Telegram · Partial</string>
+    <string name="freshness_telegram_current">Telegram · Current</string>
+    <string name="freshness_telegram_out_of_date">Telegram · Out of date</string>
+    <string name="err_telegram_set_out_of_date">This Telegram set is out of date. Create a new set to publish these edits.</string>
     <string name="pack_detail_animated_suffix">" · animated"</string>
 
     <!-- Local sticker editor -->

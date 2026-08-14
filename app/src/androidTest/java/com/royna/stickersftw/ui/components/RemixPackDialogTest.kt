@@ -1,9 +1,12 @@
 package com.royna.stickersftw.ui.components
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -26,7 +29,12 @@ class RemixPackDialogTest {
     fun defaultsToOriginalTitleWithRemixSuffix() {
         showDialog()
 
-        composeRule.onNode(hasSetTextAction()).assertTextEquals("Original (Remix)")
+        composeRule.onNode(hasSetTextAction()).assert(
+            SemanticsMatcher.expectValue(
+                SemanticsProperties.EditableText,
+                AnnotatedString("Original (Remix)"),
+            ),
+        )
     }
 
     @Test

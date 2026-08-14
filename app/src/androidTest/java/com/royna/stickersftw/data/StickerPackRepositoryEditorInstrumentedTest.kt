@@ -13,14 +13,17 @@ import com.royna.stickersftw.model.PackOrigin
 import com.royna.stickersftw.model.PackStatus
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
+import com.royna.stickersftw.network.TelegramBackendConfig
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -36,9 +39,10 @@ class StickerPackRepositoryEditorInstrumentedTest {
     private lateinit var rowIds: List<Long>
 
     @Before
-    fun seedPack() = runBlocking {
-        val now = System.currentTimeMillis()
-        var pack = PackEntity(
+    fun seedPack() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            var pack = PackEntity(
             id = packId,
             origin = PackOrigin.Created.name,
             telegramSetName = "editor_test_by_bot",
@@ -100,19 +104,26 @@ class StickerPackRepositoryEditorInstrumentedTest {
 
         val tray = File(packDir, "tray.webp")
         writePng(tray, Color.BLUE)
-        pack = pack.copy(trayIconPath = tray.absolutePath, trayStickerRowId = rowIds.first())
-        database.packDao().upsert(pack)
+            pack = pack.copy(trayIconPath = tray.absolutePath, trayStickerRowId = rowIds.first())
+            database.packDao().upsert(pack)
+        }
     }
 
     @After
-    fun cleanUp() = runBlocking {
-        repository.finalizeLastPackEdit(packId)
-        database.packDao().delete(packId)
-        packDir.deleteRecursively()
+    fun cleanUp() {
+        runBlocking {
+            repository.finalizeLastPackEdit(packId)
+            database.packDao().delete(packId)
+            packDir.deleteRecursively()
+        }
     }
 
     @Test
     fun reorderAndUndoRestoreContentWithMonotonicSyncedRevision() = runBlocking {
+        assertEquals(
+            5,
+            repository.observePacks().first().first { it.id == packId }.imageDataVersion,
+        )
         assertTrue(repository.reorderStickers(packId, rowIds.reversed()))
         assertEquals(
             rowIds.reversed(),
@@ -130,6 +141,43 @@ class StickerPackRepositoryEditorInstrumentedTest {
         assertEquals(7, restored.imageDataVersion)
         assertEquals(7, restored.whatsappSyncedDataVersion)
         assertEquals(7, restored.telegramSyncedDataVersion)
+    }
+
+    @Test
+    fun legacyPartialPushBecomesStaleOnEditAndAlignedOnUndo() = runBlocking {
+        val pack = database.packDao().getPack(packId)!!
+        database.packDao().upsert(pack.copy(telegramSyncedDataVersion = null))
+        val missing = database.stickerDao().findByRowId(rowIds.last())!!
+        database.stickerDao().upsert(missing.copy(convertedTelegramPath = null))
+        assertNull(database.packDao().getPack(packId)!!.telegramSyncedDataVersion)
+
+        assertTrue(repository.reorderStickers(packId, rowIds.reversed()))
+        val edited = database.packDao().getPack(packId)!!
+        assertEquals(6, edited.imageDataVersion)
+        assertEquals(5, edited.telegramSyncedDataVersion)
+
+        repository.undoLastPackEdit(packId)
+        val restored = database.packDao().getPack(packId)!!
+        assertEquals(7, restored.imageDataVersion)
+        assertEquals(7, restored.telegramSyncedDataVersion)
+    }
+
+    @Test
+    fun staleTelegramPackIsRejectedBeforeRemoteMutation() = runBlocking {
+        val pack = database.packDao().getPack(packId)!!
+        val stale = pack.copy(imageDataVersion = 6, telegramSyncedDataVersion = 5)
+        database.packDao().upsert(stale)
+
+        val progress = repository.publishPack(
+            packId = packId,
+            pushToTelegram = true,
+            addToWhatsapp = false,
+            backendConfig = TelegramBackendConfig.ServerUrl("http://127.0.0.1:1"),
+            telegramUserId = "unused",
+        ).toList()
+
+        assertTrue(progress.single() is PackOperationProgress.Failed)
+        assertEquals(stale, database.packDao().getPack(packId))
     }
 
     @Test

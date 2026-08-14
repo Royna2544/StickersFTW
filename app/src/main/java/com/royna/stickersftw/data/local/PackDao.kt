@@ -38,10 +38,26 @@ interface PackDao {
     @Query("UPDATE packs SET whatsappAdded = :added WHERE id = :id")
     suspend fun setWhatsappAdded(id: String, added: Boolean)
 
+    /** Called only after the explicit Add-to-WhatsApp result has been
+     * verified against WhatsApp's whitelist. A passive whitelist refresh
+     * must use [setWhatsappAdded] so it cannot make edited content current. */
     @Query(
-        "UPDATE packs SET telegramSetName = :fullName, updatedAtMillis = :now WHERE id = :id",
+        "UPDATE packs SET whatsappAdded = 1, whatsappSyncedDataVersion = :expectedRevision " +
+            "WHERE id = :id AND imageDataVersion = :expectedRevision",
     )
-    suspend fun setTelegramSetName(id: String, fullName: String, now: Long)
+    suspend fun acknowledgeWhatsappInstall(id: String, expectedRevision: Int): Int
+
+    @Query(
+        "UPDATE packs SET telegramSetName = :fullName, " +
+            "telegramSyncedDataVersion = COALESCE(telegramSyncedDataVersion, :representedRevision), " +
+            "updatedAtMillis = :now WHERE id = :id",
+    )
+    suspend fun setTelegramSetName(
+        id: String,
+        fullName: String,
+        representedRevision: Int,
+        now: Long,
+    ): Int
 
     /** Non-terminal states only exist while an operation is running. If one
      * is found with nothing running, the process died mid-conversion and the
