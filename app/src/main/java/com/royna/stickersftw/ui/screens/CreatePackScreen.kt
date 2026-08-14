@@ -62,6 +62,10 @@ import com.royna.stickersftw.ui.theme.appButtonColors
 fun CreatePackScreen(
     onBack: () -> Unit,
     botUsername: String? = null,
+    /** Media the screen opens with, when it was reached from a share rather
+     * than from the Create button. Seeded once; the user can still add to or
+     * remove from it like anything they picked here themselves. */
+    initialItems: List<PickedMediaItem> = emptyList(),
     onPublish: (
         items: List<PickedMediaItem>,
         title: String,
@@ -71,7 +75,7 @@ fun CreatePackScreen(
     ) -> Unit,
 ) {
     val context = LocalContext.current
-    val mediaItems = remember { mutableStateListOf<PickedMediaItem>() }
+    val mediaItems = remember { mutableStateListOf<PickedMediaItem>().apply { addAll(initialItems) } }
     var title by rememberSaveable { mutableStateOf("") }
     var shortName by rememberSaveable { mutableStateOf("") }
     var pushToTelegram by rememberSaveable { mutableStateOf(true) }

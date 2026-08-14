@@ -50,6 +50,8 @@ import com.royna.stickersftw.ui.screens.ImportPackScreen
 import com.royna.stickersftw.ui.screens.MyPacksScreen
 import com.royna.stickersftw.ui.screens.PackDetailScreen
 import com.royna.stickersftw.ui.screens.PackUpdateDiffScreen
+import com.royna.stickersftw.model.PickedMediaItem
+import com.royna.stickersftw.ui.screens.ShareTargetScreen
 import com.royna.stickersftw.ui.screens.SettingsScreen
 import com.royna.stickersftw.ui.screens.StickerGridScreen
 
@@ -64,6 +66,7 @@ private object Routes {
     const val Conversion = "conversion/{packId}"
     const val Grid = "pack/{packId}/grid"
     const val UpdateDiff = "pack/{packId}/update"
+    const val ShareTarget = "share"
 
     fun detail(packId: String) = "pack/$packId"
     fun conversion(packId: String) = "conversion/$packId"
@@ -107,6 +110,8 @@ fun StickersFtwApp(
     viewModel: AppViewModel,
     pendingPackId: String? = null,
     onPendingPackIdConsumed: () -> Unit = {},
+    sharedMedia: List<PickedMediaItem> = emptyList(),
+    onSharedMediaConsumed: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -172,6 +177,14 @@ fun StickersFtwApp(
     // a fresh pack, or after the user answers "Overwrite?" for a duplicate)
     // -- can't navigate at the call site since a duplicate has to wait on
     // that answer first.
+    // Keyed on identity rather than emptiness so a second share while the
+    // app is already open re-enters the flow instead of being swallowed.
+    LaunchedEffect(sharedMedia) {
+        if (sharedMedia.isNotEmpty()) {
+            navController.navigate(Routes.ShareTarget) { launchSingleTop = true }
+        }
+    }
+
     LaunchedEffect(pendingNavigation) {
         val packId = pendingNavigation
         if (packId != null) {
@@ -309,12 +322,33 @@ fun StickersFtwApp(
                     onDownload = { viewModel.startImportCustom() },
                 )
             }
+            composable(Routes.ShareTarget) {
+                ShareTargetScreen(
+                    packs = packs,
+                    sharedCount = sharedMedia.size,
+                    onCreateNew = { navController.navigate(Routes.Create) },
+                    onAddToPack = { id ->
+                        if (viewModel.addStickersToPack(id, sharedMedia)) {
+                            onSharedMediaConsumed()
+                            navController.navigate(Routes.conversion(id)) {
+                                popUpTo(Routes.ShareTarget) { inclusive = true }
+                            }
+                        }
+                    },
+                    onBack = {
+                        onSharedMediaConsumed()
+                        navController.popBackStack()
+                    },
+                )
+            }
             composable(Routes.Create) {
                 CreatePackScreen(
+                    initialItems = sharedMedia,
                     onBack = { navController.popBackStack() },
                     botUsername = botUsername,
                     onPublish = { items, title, shortName, pushToTelegram, addToWhatsapp ->
                         viewModel.createPack(items, title, shortName) { packId ->
+                            onSharedMediaConsumed()
                             if (viewModel.startPublish(packId, pushToTelegram, addToWhatsapp)) {
                                 navController.navigate(Routes.conversion(packId)) {
                                     popUpTo(Routes.Create) { inclusive = true }

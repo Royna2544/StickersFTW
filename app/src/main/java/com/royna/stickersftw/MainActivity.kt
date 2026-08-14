@@ -16,6 +16,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.royna.stickersftw.data.ThemeModeCache
 import com.royna.stickersftw.model.ThemeMode
+import androidx.lifecycle.lifecycleScope
+import com.royna.stickersftw.model.PickedMediaItem
+import kotlinx.coroutines.launch
 import com.royna.stickersftw.ui.AppViewModel
 import com.royna.stickersftw.ui.theme.StickersFtwTheme
 import com.royna.stickersftw.ui.theme.resolveDarkTheme
@@ -23,6 +26,7 @@ import com.royna.stickersftw.ui.theme.resolveDarkTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: AppViewModel by viewModels()
     private var pendingPackId by mutableStateOf<String?>(null)
+    private var sharedMedia by mutableStateOf<List<PickedMediaItem>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // The window exists from process start until Compose draws its first
@@ -47,6 +51,7 @@ class MainActivity : ComponentActivity() {
         applyEdgeToEdge(startupThemeMode.resolveDarkTheme(resources))
         super.onCreate(savedInstanceState)
         pendingPackId = intent?.getStringExtra(EXTRA_PACK_ID)
+        ingestShare(intent)
 
         setContent {
             val settings by viewModel.settings.collectAsStateWithLifecycle()
@@ -62,6 +67,8 @@ class MainActivity : ComponentActivity() {
                     viewModel = viewModel,
                     pendingPackId = pendingPackId,
                     onPendingPackIdConsumed = { pendingPackId = null },
+                    sharedMedia = sharedMedia,
+                    onSharedMediaConsumed = { sharedMedia = emptyList() },
                 )
             }
         }
@@ -73,6 +80,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         pendingPackId = intent.getStringExtra(EXTRA_PACK_ID)
+        // singleTask means a share into an already-running instance arrives
+        // here rather than at onCreate, so it has to be read in both places.
+        ingestShare(intent)
+    }
+
+    /** Copies shared media off the incoming grant before anything else can
+     * need it -- see [SharedMedia]. Off the main thread because a shared clip
+     * can be tens of megabytes. */
+    private fun ingestShare(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND && intent?.action != Intent.ACTION_SEND_MULTIPLE) return
+        lifecycleScope.launch {
+            sharedMedia = SharedMedia.ingest(intent, this@MainActivity)
+        }
     }
 
     /** Bare [enableEdgeToEdge] detects dark mode from `Configuration.uiMode`,
