@@ -252,6 +252,15 @@
         <item quantity="one">Paketin tamamı tek tür olsun diye %1$d çıkartma sabit görüntü olarak kaydedildi; WhatsApp yalnızca bunu kabul ediyor.</item>
         <item quantity="other">Paketin tamamı tek tür olsun diye %1$d çıkartma sabit görüntü olarak kaydedildi; WhatsApp yalnızca bunu kabul ediyor.</item>
     </plurals>
+    <string name="action_add_stickers">Çıkartma ekle</string>
+    <string name="pack_detail_full">Bu paket dolu. WhatsApp paket başına 30 çıkartmaya izin verir.</string>
+    <string name="add_source_title">Çıkartmaları şuradan ekle</string>
+    <string name="add_source_device_media">Fotoğraflar ve videolar</string>
+    <string name="add_source_device_media_body">Bu cihazdan seç</string>
+    <plurals name="add_source_remaining">
+        <item quantity="one">Bu pakete %1$d tane daha sığar.</item>
+        <item quantity="other">Bu pakete %1$d tane daha sığar.</item>
+    </plurals>
     <plurals name="warn_stickers_dropped">
         <item quantity="one">%1$d çıkartma dönüştürülemedi ve pakete eklenmedi.</item>
         <item quantity="other">%1$d çıkartma dönüştürülemedi ve pakete eklenmedi.</item>

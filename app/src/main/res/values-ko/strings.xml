@@ -246,6 +246,14 @@
     <plurals name="warn_mixed_pack_flattened">
         <item quantity="other">팩을 한 종류로 맞추기 위해 스티커 %1$d개를 정지 이미지로 저장했습니다. WhatsApp이 허용하는 형태입니다.</item>
     </plurals>
+    <string name="action_add_stickers">스티커 추가</string>
+    <string name="pack_detail_full">이 팩은 가득 찼습니다. WhatsApp은 팩당 스티커 30개까지 허용합니다.</string>
+    <string name="add_source_title">스티커 가져올 위치</string>
+    <string name="add_source_device_media">사진 및 동영상</string>
+    <string name="add_source_device_media_body">이 기기에서 선택</string>
+    <plurals name="add_source_remaining">
+        <item quantity="other">이 팩에 %1$d개를 더 넣을 수 있습니다.</item>
+    </plurals>
     <plurals name="warn_stickers_dropped">
         <item quantity="other">스티커 %1$d개를 변환하지 못해 팩에서 제외했습니다.</item>
     </plurals>

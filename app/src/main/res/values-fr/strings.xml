@@ -252,6 +252,16 @@
         <item quantity="one">%1$d sticker a été enregistré en image fixe pour que le pack soit d\'un seul type, le seul cas accepté par WhatsApp.</item>
         <item quantity="other">%1$d stickers ont été enregistrés en images fixes pour que le pack soit d\'un seul type, le seul cas accepté par WhatsApp.</item>
     </plurals>
+    <string name="action_add_stickers">Ajouter des stickers</string>
+    <string name="pack_detail_full">Ce pack est plein. WhatsApp autorise 30 stickers par pack.</string>
+    <string name="add_source_title">Ajouter des stickers depuis</string>
+    <string name="add_source_device_media">Photos et vidéos</string>
+    <string name="add_source_device_media_body">Choisir sur cet appareil</string>
+    <plurals name="add_source_remaining">
+        <item quantity="one">Place pour %1$d de plus dans ce pack.</item>
+        <item quantity="many">Place pour %1$d de plus dans ce pack.</item>
+        <item quantity="other">Place pour %1$d de plus dans ce pack.</item>
+    </plurals>
     <plurals name="warn_stickers_dropped">
         <item quantity="one">%1$d sticker n’a pas pu être converti et a été exclu du pack.</item>
         <item quantity="many">%1$d stickers n’ont pas pu être convertis et ont été exclus du pack.</item>

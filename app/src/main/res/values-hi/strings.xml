@@ -252,6 +252,15 @@
         <item quantity="one">%1$d स्टिकर को स्थिर छवि के रूप में सहेजा गया ताकि पूरा पैक एक ही प्रकार का हो; WhatsApp केवल यही स्वीकार करता है।</item>
         <item quantity="other">%1$d स्टिकर स्थिर छवियों के रूप में सहेजे गए ताकि पूरा पैक एक ही प्रकार का हो; WhatsApp केवल यही स्वीकार करता है।</item>
     </plurals>
+    <string name="action_add_stickers">स्टिकर जोड़ें</string>
+    <string name="pack_detail_full">यह पैक भर चुका है। WhatsApp हर पैक में 30 स्टिकर की अनुमति देता है।</string>
+    <string name="add_source_title">स्टिकर यहाँ से जोड़ें</string>
+    <string name="add_source_device_media">फ़ोटो और वीडियो</string>
+    <string name="add_source_device_media_body">इस डिवाइस से चुनें</string>
+    <plurals name="add_source_remaining">
+        <item quantity="one">इस पैक में %1$d और की जगह है।</item>
+        <item quantity="other">इस पैक में %1$d और की जगह है।</item>
+    </plurals>
     <plurals name="warn_stickers_dropped">
         <item quantity="one">%1$d स्टिकर कन्वर्ट नहीं हो सका, इसलिए उसे पैक में शामिल नहीं किया गया।</item>
         <item quantity="other">%1$d स्टिकर कन्वर्ट नहीं हो सके, इसलिए उन्हें पैक में शामिल नहीं किया गया।</item>

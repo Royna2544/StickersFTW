@@ -252,6 +252,16 @@
         <item quantity="one">%1$d figurinha foi salva como imagem estática para o pacote ficar de um tipo só, que é o que o WhatsApp aceita.</item>
         <item quantity="other">%1$d figurinhas foram salvas como imagens estáticas para o pacote ficar de um tipo só, que é o que o WhatsApp aceita.</item>
     </plurals>
+    <string name="action_add_stickers">Adicionar figurinhas</string>
+    <string name="pack_detail_full">Este pacote está cheio. O WhatsApp permite 30 figurinhas por pacote.</string>
+    <string name="add_source_title">Adicionar figurinhas de</string>
+    <string name="add_source_device_media">Fotos e vídeos</string>
+    <string name="add_source_device_media_body">Escolher neste dispositivo</string>
+    <plurals name="add_source_remaining">
+        <item quantity="one">Cabem mais %1$d neste pacote.</item>
+        <item quantity="many">Cabem mais %1$d neste pacote.</item>
+        <item quantity="other">Cabem mais %1$d neste pacote.</item>
+    </plurals>
     <plurals name="warn_stickers_dropped">
         <item quantity="one">%1$d figurinha não pôde ser convertida e ficou de fora do pacote.</item>
         <item quantity="many">%1$d figurinhas não puderam ser convertidas e ficaram de fora do pacote.</item>

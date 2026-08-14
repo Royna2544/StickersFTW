@@ -246,6 +246,14 @@
     <plurals name="warn_mixed_pack_flattened">
         <item quantity="other">%1$d nhãn dán đã được lưu thành ảnh tĩnh để cả gói cùng một loại, thứ duy nhất WhatsApp chấp nhận.</item>
     </plurals>
+    <string name="action_add_stickers">Thêm nhãn dán</string>
+    <string name="pack_detail_full">Gói này đã đầy. WhatsApp cho phép 30 nhãn dán mỗi gói.</string>
+    <string name="add_source_title">Thêm nhãn dán từ</string>
+    <string name="add_source_device_media">Ảnh và video</string>
+    <string name="add_source_device_media_body">Chọn từ thiết bị này</string>
+    <plurals name="add_source_remaining">
+        <item quantity="other">Gói này còn chỗ cho %1$d nhãn dán.</item>
+    </plurals>
     <plurals name="warn_stickers_dropped">
         <item quantity="other">Không thể chuyển đổi %1$d nhãn dán nên chúng không có trong gói.</item>
     </plurals>
