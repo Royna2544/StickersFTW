@@ -21,12 +21,19 @@ object TelegramVideoConverter {
         var started = false
     }
 
-    suspend fun convert(input: File, output: File, targetPx: Int, maxBytes: Int): ConversionOutcome =
+    suspend fun convert(
+        input: File,
+        output: File,
+        targetPx: Int,
+        maxBytes: Int,
+        trimStartMs: Long = 0L,
+    ): ConversionOutcome =
         withContext(Dispatchers.Default) {
             val frames = VideoStickerConverter.extractFrames(
                 input,
                 targetPx,
                 SizeBudget.TELEGRAM_MAX_DURATION_MS,
+                startMs = trimStartMs,
             ) ?: return@withContext ConversionOutcome.Failed("Could not decode video frames.")
 
             try {

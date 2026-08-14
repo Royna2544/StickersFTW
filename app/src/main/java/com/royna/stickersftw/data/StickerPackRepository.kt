@@ -759,6 +759,7 @@ class StickerPackRepository(private val appContext: Context) {
                     convertedTelegramPath = null,
                     conversionStatus = "Pending",
                     conversionError = null,
+                    trimStartMs = item.trimStartMs,
                 ),
             )
         }
@@ -796,6 +797,7 @@ class StickerPackRepository(private val appContext: Context) {
                     type,
                     forceAnimated = pack.isAnimatedPack,
                     bias = bias,
+                    trimStartMs = item.trimStartMs,
                 )
             ) {
                 is StickerConvertResult.Success -> {
@@ -888,6 +890,7 @@ class StickerPackRepository(private val appContext: Context) {
                     convertedTelegramPath = null,
                     conversionStatus = "Pending",
                     conversionError = null,
+                    trimStartMs = item.trimStartMs,
                 )
             },
         )
@@ -946,6 +949,7 @@ class StickerPackRepository(private val appContext: Context) {
         var staticCount = 0
         var firstConvertedFile: File? = null
         var firstConvertedType: StickerMediaType? = null
+        var firstConvertedSticker: StickerEntity? = null
         val convertedForFixup = mutableListOf<WhatsappConvertedSticker>()
 
         val slowFormat = localFiles.any { (sticker, _) -> sticker.isVideo }
@@ -963,15 +967,31 @@ class StickerPackRepository(private val appContext: Context) {
                 val type = if (sticker.isVideo) StickerMediaType.Video else StickerMediaType.Static
                 val output = File(packDir, "converted/${sticker.rowId}.webp")
                 when (
-                    val result = StickerConversionPipeline.convertForWhatsapp(appContext, file, output, type, bias)
+                    val result = StickerConversionPipeline.convertForWhatsapp(
+                        appContext,
+                        file,
+                        output,
+                        type,
+                        bias,
+                        trimStartMs = sticker.trimStartMs,
+                    )
                 ) {
                     is StickerConvertResult.Success -> {
                         whatsappConvertedCount++
                         if (result.isAnimated) animatedCount++ else staticCount++
-                        convertedForFixup.add(WhatsappConvertedSticker(file, type, output, result.isAnimated))
+                        convertedForFixup.add(
+                            WhatsappConvertedSticker(
+                                file,
+                                type,
+                                output,
+                                result.isAnimated,
+                                sticker.trimStartMs,
+                            ),
+                        )
                         if (firstConvertedFile == null) {
                             firstConvertedFile = file
                             firstConvertedType = type
+                            firstConvertedSticker = sticker
                         }
                         updateStickerByRowId(sticker.rowId) { it.copy(convertedWhatsappPath = output.absolutePath) }
                     }
@@ -1029,7 +1049,14 @@ class StickerPackRepository(private val appContext: Context) {
                         }
                         val telegramOutput = File(packDir, "telegram/${sticker.rowId}.bin")
                         val format = if (sticker.isVideo) "video" else "static"
-                        when (val convertResult = StickerConversionPipeline.convertForTelegram(file, telegramOutput, sticker.isVideo)) {
+                        when (
+                            val convertResult = StickerConversionPipeline.convertForTelegram(
+                                file,
+                                telegramOutput,
+                                sticker.isVideo,
+                                sticker.trimStartMs,
+                            )
+                        ) {
                             is StickerConvertResult.Failed -> {
                                 telegramFailedCount++
                                 telegramPushWarning = convertResult.reason
@@ -1095,7 +1122,12 @@ class StickerPackRepository(private val appContext: Context) {
                 emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_building_tray_icon), 0.92f))
                 val trayFile = File(packDir, "tray.webp")
                 val trayReady = firstConvertedFile != null && firstConvertedType != null &&
-                    StickerConversionPipeline.buildTrayIcon(firstConvertedFile, firstConvertedType, trayFile) is StickerConvertResult.Success
+                    StickerConversionPipeline.buildTrayIcon(
+                        firstConvertedFile,
+                        firstConvertedType,
+                        trayFile,
+                        firstConvertedSticker?.trimStartMs ?: 0L,
+                    ) is StickerConvertResult.Success
                 finalizePackReady(packId, packIsAnimated, trayFile.absolutePath.takeIf { trayReady }, telegramPushWarning, bias)
             }
             pushToTelegram && telegramPushedFullName != null -> {
@@ -1410,6 +1442,7 @@ class StickerPackRepository(private val appContext: Context) {
         val type: StickerMediaType,
         val output: File,
         val isAnimated: Boolean,
+        val trimStartMs: Long = 0L,
     )
 
     /** WhatsApp's own validator rejects a whole pack if even one sticker's
@@ -1434,6 +1467,7 @@ class StickerPackRepository(private val appContext: Context) {
                 sticker.type,
                 forceAnimated = packIsAnimated,
                 bias = bias,
+                trimStartMs = sticker.trimStartMs,
             )
         }
     }

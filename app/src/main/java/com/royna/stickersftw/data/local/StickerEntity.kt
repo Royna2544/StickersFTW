@@ -36,4 +36,7 @@ data class StickerEntity(
     val convertedTelegramPath: String?,
     val conversionStatus: String,
     val conversionError: String?,
+    /** Where in the source clip this sticker starts, in milliseconds. Only
+     * ever non-zero for a locally picked video the user trimmed. */
+    val trimStartMs: Long = 0L,
 )

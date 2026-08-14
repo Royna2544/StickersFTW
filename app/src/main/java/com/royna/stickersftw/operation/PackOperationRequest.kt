@@ -43,9 +43,9 @@ sealed class PackOperationRequest {
     ) : PackOperationRequest()
 
     /** Appends already-picked local media to an existing pack. The items are
-     * carried as three parallel arrays because an Intent has no way to hold a
-     * list of PickedMediaItem without making it Parcelable, and the three
-     * fields it has are all primitives. */
+     * carried as parallel arrays because an Intent has no way to hold a list
+     * of PickedMediaItem without making it Parcelable, and all of its fields
+     * are primitives. */
     data class AddStickers(
         override val packId: String,
         override val packTitle: String,
@@ -77,6 +77,7 @@ sealed class PackOperationRequest {
                 putExtra(KEY_ITEM_URIS, items.map { it.uri }.toTypedArray())
                 putExtra(KEY_ITEM_EMOJIS, items.map { it.emoji }.toTypedArray())
                 putExtra(KEY_ITEM_IS_VIDEO, items.map { it.kind == PickedMediaKind.Video }.toBooleanArray())
+                putExtra(KEY_ITEM_TRIM_STARTS, items.map { it.trimStartMs }.toLongArray())
             }
         }
     }
@@ -93,6 +94,7 @@ sealed class PackOperationRequest {
         private const val KEY_ITEM_URIS = "itemUris"
         private const val KEY_ITEM_EMOJIS = "itemEmojis"
         private const val KEY_ITEM_IS_VIDEO = "itemIsVideo"
+        private const val KEY_ITEM_TRIM_STARTS = "itemTrimStarts"
 
         private const val KIND_IMPORT = "import"
         private const val KIND_IMPORT_CUSTOM = "importCustom"
@@ -127,6 +129,7 @@ sealed class PackOperationRequest {
                     val uris = intent.getStringArrayExtra(KEY_ITEM_URIS).orEmpty()
                     val emojis = intent.getStringArrayExtra(KEY_ITEM_EMOJIS).orEmpty()
                     val isVideo = intent.getBooleanArrayExtra(KEY_ITEM_IS_VIDEO) ?: BooleanArray(uris.size)
+                    val trimStarts = intent.getLongArrayExtra(KEY_ITEM_TRIM_STARTS) ?: LongArray(uris.size)
                     AddStickers(
                         packId,
                         packTitle,
@@ -139,6 +142,7 @@ sealed class PackOperationRequest {
                                     PickedMediaKind.Image
                                 },
                                 emoji = emojis.getOrElse(index) { "🙂" },
+                                trimStartMs = trimStarts.getOrElse(index) { 0L },
                             )
                         },
                     )

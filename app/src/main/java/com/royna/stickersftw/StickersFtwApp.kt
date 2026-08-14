@@ -27,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
@@ -52,6 +54,7 @@ import com.royna.stickersftw.ui.screens.PackDetailScreen
 import com.royna.stickersftw.ui.screens.PackUpdateDiffScreen
 import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.ui.screens.ShareTargetScreen
+import com.royna.stickersftw.ui.screens.TrimVideoScreen
 import com.royna.stickersftw.ui.screens.SettingsScreen
 import com.royna.stickersftw.ui.screens.StickerGridScreen
 
@@ -140,6 +143,7 @@ fun StickersFtwApp(
     val botUsername by viewModel.botUsername.collectAsStateWithLifecycle()
     val pendingNavigation by viewModel.pendingNavigation.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
+    val trimRequest by viewModel.trimRequest.collectAsStateWithLifecycle()
     val mixedPackQuestion by viewModel.mixedPackQuestion.collectAsStateWithLifecycle()
     val busyMessage by viewModel.busyMessage.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -328,10 +332,12 @@ fun StickersFtwApp(
                     sharedCount = sharedMedia.size,
                     onCreateNew = { navController.navigate(Routes.Create) },
                     onAddToPack = { id ->
-                        if (viewModel.addStickersToPack(id, sharedMedia)) {
-                            onSharedMediaConsumed()
-                            navController.navigate(Routes.conversion(id)) {
-                                popUpTo(Routes.ShareTarget) { inclusive = true }
+                        viewModel.prepareMedia(sharedMedia) { prepared ->
+                            if (viewModel.addStickersToPack(id, prepared)) {
+                                onSharedMediaConsumed()
+                                navController.navigate(Routes.conversion(id)) {
+                                    popUpTo(Routes.ShareTarget) { inclusive = true }
+                                }
                             }
                         }
                     },
@@ -344,6 +350,7 @@ fun StickersFtwApp(
             composable(Routes.Create) {
                 CreatePackScreen(
                     initialItems = sharedMedia,
+                    onPrepareMedia = viewModel::prepareMedia,
                     onBack = { navController.popBackStack() },
                     botUsername = botUsername,
                     onPublish = { items, title, shortName, pushToTelegram, addToWhatsapp ->
@@ -401,8 +408,10 @@ fun StickersFtwApp(
                     },
                     onViewAllStickers = { navController.navigate(Routes.grid(it)) },
                     onAddStickers = { id, items ->
-                        if (viewModel.addStickersToPack(id, items)) {
-                            navController.navigate(Routes.conversion(id))
+                        viewModel.prepareMedia(items) { prepared ->
+                            if (viewModel.addStickersToPack(id, prepared)) {
+                                navController.navigate(Routes.conversion(id))
+                            }
                         }
                     },
                 )
@@ -477,6 +486,32 @@ fun StickersFtwApp(
                     },
                 )
             }
+        }
+    }
+
+    // This is an overlay rather than a navigation destination. The screen
+    // that launched a trim (especially Create, with its local picked-item
+    // list) stays composed underneath, so confirming cannot discard that
+    // state or restart its initial-media effect.
+    trimRequest?.let { request ->
+        Dialog(
+            onDismissRequest = viewModel::cancelTrim,
+            properties = DialogProperties(
+                dismissOnClickOutside = false,
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false,
+            ),
+        ) {
+            TrimVideoScreen(
+                durationMs = request.durationMs,
+                startMs = request.startMs,
+                previewFrame = request.preview,
+                position = request.position,
+                total = request.total,
+                onStartChanged = viewModel::setTrimStart,
+                onConfirm = viewModel::confirmTrim,
+                onBack = viewModel::cancelTrim,
+            )
         }
     }
 

@@ -576,6 +576,27 @@ class AppViewModel(
         )
     }
 
+    // ---- Preparing picked media (trim) --------------------------------
+
+    private val trimCoordinator = MediaTrimCoordinator(application)
+    val trimRequest: StateFlow<TrimRequest?> = trimCoordinator.request
+
+    /** Materialises picked media and lets the user place the sticker window
+     * for long clips before handing the edited items to [onReady]. */
+    fun prepareMedia(items: List<PickedMediaItem>, onReady: (List<PickedMediaItem>) -> Unit) {
+        viewModelScope.launch { trimCoordinator.begin(items, onReady) }
+    }
+
+    fun setTrimStart(startMs: Long) {
+        viewModelScope.launch { trimCoordinator.setStart(startMs) }
+    }
+
+    fun confirmTrim(startMs: Long) {
+        viewModelScope.launch { trimCoordinator.confirm(startMs) }
+    }
+
+    fun cancelTrim() = trimCoordinator.cancel()
+
     fun disableUpdatesForPack(packId: String) {
         viewModelScope.launch { packRepository.setUpdateCheckEnabled(packId, false) }
     }

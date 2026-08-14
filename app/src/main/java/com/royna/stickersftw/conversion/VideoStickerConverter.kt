@@ -55,14 +55,57 @@ object VideoStickerConverter {
         videoFile: File,
         targetPx: Int,
         maxDurationMs: Long = SizeBudget.MAX_TOTAL_DURATION_MS,
+        /** Where in the clip the sticker starts. A sticker is at most
+         * [SizeBudget.MAX_TOTAL_DURATION_MS] long, so anything longer than
+         * that has to give up most of itself -- and the part worth keeping is
+        * almost never the opening seconds, which is all this used to take. */
+        startMs: Long = 0L,
     ): List<TimedFrame>? {
         WebmAlphaDemuxer.readAlphaTrack(videoFile)?.let { track ->
             // A failure here falls through rather than giving up: an opaque
             // sticker beats no sticker, and the extractor path can still
             // decode the colour bitstream on its own.
-            extractFramesWithAlpha(track, targetPx, maxDurationMs)?.let { return it }
+            extractFramesWithAlpha(track, targetPx, maxDurationMs, startMs)?.let {
+                return rebased(it)
+            }
         }
-        return extractFramesViaExtractor(videoFile, targetPx, maxDurationMs)
+        return extractFramesViaExtractor(videoFile, targetPx, maxDurationMs, startMs)
+            ?.let { rebased(it) }
+    }
+
+    /** Shifts the kept frames so the first one sits at zero.
+     *
+     * Subtracting the requested start is not enough on its own: no frame lands
+     * exactly on the millisecond asked for, so a trimmed sticker came out with
+     * its first frame a frame-interval late. Small enough not to see, but it
+     * makes "the sticker starts where you chose" true only approximately, and
+     * an invariant that is nearly true is one nothing downstream can rely on. */
+    private fun rebased(frames: List<TimedFrame>): List<TimedFrame> {
+        val offset = frames.firstOrNull()?.timestampMs ?: return frames
+        if (offset == 0L) return frames
+        return frames.map { it.copy(timestampMs = it.timestampMs - offset) }
+    }
+
+    /** How long [videoFile] runs, or null when it will not say.
+     *
+     * Used to decide whether the clip even needs trimming, so a failure here
+     * means "do not offer a trim" rather than anything fatal. */
+    fun durationMsOf(videoFile: File): Long? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(videoFile.absolutePath)
+            (0 until extractor.trackCount)
+                .map { extractor.getTrackFormat(it) }
+                .firstOrNull { it.getString(MediaFormat.KEY_MIME)?.startsWith("video/") == true }
+                ?.takeIf { it.containsKey(MediaFormat.KEY_DURATION) }
+                ?.getLong(MediaFormat.KEY_DURATION)
+                ?.let { it / 1000 }
+                ?.takeIf { it > 0 }
+        } catch (_: Exception) {
+            null
+        } finally {
+            extractor.release()
+        }
     }
 
     /** The gap between kept frames, for a source running [durationUs] long.
@@ -128,16 +171,22 @@ object VideoStickerConverter {
         track: WebmAlphaTrack,
         targetPx: Int,
         maxDurationMs: Long,
+        startMs: Long,
     ): List<TimedFrame>? {
         if (track.frames.any { it.alpha == null }) return null
 
-        val maxDurationUs = maxDurationMs * 1000
-        val sourceUs = minOf(track.frames.last().presentationTimeUs, maxDurationUs)
+        // Both bitstreams are decoded from the start regardless -- VP9 frames
+        // depend on what came before, so there is nothing to skip to. The
+        // window only decides which decoded frames are kept.
+        val startUs = startMs * 1000
+        val endUs = startUs + maxDurationMs * 1000
+        val sourceUs = minOf(track.frames.last().presentationTimeUs - startUs, maxDurationMs * 1000)
         val clock = FrameClock(sampleIntervalUs(sourceUs))
         val wanted = LinkedHashSet<Long>()
         for (frame in track.frames) {
-            if (frame.presentationTimeUs > maxDurationUs) break
-            if (!clock.accept(frame.presentationTimeUs)) continue
+            if (frame.presentationTimeUs < startUs) continue
+            if (frame.presentationTimeUs > endUs) break
+            if (!clock.accept(frame.presentationTimeUs - startUs)) continue
             wanted += frame.presentationTimeUs
             if (wanted.size >= MAX_FRAMES) break
         }
@@ -158,7 +207,12 @@ object VideoStickerConverter {
             wanted,
         ) { pts, image ->
             val bitmap = imageToBitmap(image, alphaPlanes[pts])
-            collected += TimedFrame(pts / 1000, BitmapPrep.fitSquareWithPadding(bitmap, targetPx))
+            // Rebased so the sticker starts at zero however far in the window
+            // begins; WebpAnimationEncoder reads these as frame timings.
+            collected += TimedFrame(
+                (pts - startUs) / 1000,
+                BitmapPrep.fitSquareWithPadding(bitmap, targetPx),
+            )
         }
         if (!colourDecoded) return null
 
@@ -230,6 +284,7 @@ object VideoStickerConverter {
         videoFile: File,
         targetPx: Int,
         maxDurationMs: Long,
+        startMs: Long,
     ): List<TimedFrame>? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -242,13 +297,25 @@ object VideoStickerConverter {
             val mime = format.getString(MediaFormat.KEY_MIME) ?: return null
             extractor.selectTrack(trackIndex)
 
+            val startUs = startMs * 1000
+            if (startUs > 0) {
+                // PREVIOUS_SYNC, not CLOSEST: the decoder needs a keyframe to
+                // start from, and Telegram-style clips are sparsely keyframed,
+                // so asking for the closest sample can land somewhere that
+                // decodes to nothing. Starting a little early and dropping the
+                // frames before the window costs a few decodes and always
+                // works.
+                extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            }
+
             val decoder = createConfiguredDecoder(mime, format)
             codec = decoder
             decoder.start()
 
             val maxDurationUs = maxDurationMs * 1000
+            val endUs = startUs + maxDurationUs
             val declaredUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                format.getLong(MediaFormat.KEY_DURATION)
+                format.getLong(MediaFormat.KEY_DURATION) - startUs
             } else {
                 maxDurationUs
             }
@@ -258,6 +325,9 @@ object VideoStickerConverter {
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
+            var seenFrames = 0
+            var firstPts = -1L
+            var lastPts = -1L
 
             while (!outputDone && collected.size < MAX_FRAMES) {
                 coroutineContext.ensureActive()
@@ -280,21 +350,27 @@ object VideoStickerConverter {
                 val outIndex = decoder.dequeueOutputBuffer(bufferInfo, DEQUEUE_TIMEOUT_US)
                 if (outIndex >= 0) {
                     val ptsUs = bufferInfo.presentationTimeUs
+                    if (bufferInfo.size > 0) {
+                        seenFrames++
+                        if (firstPts < 0) firstPts = ptsUs
+                        lastPts = ptsUs
+                    }
                     val shouldSample = bufferInfo.size > 0 &&
-                        ptsUs <= maxDurationUs &&
-                        clock.accept(ptsUs)
+                        ptsUs >= startUs &&
+                        ptsUs <= endUs &&
+                        clock.accept(ptsUs - startUs)
                     if (shouldSample) {
                         decoder.getOutputImage(outIndex)?.use { image ->
                             val bitmap = imageToBitmap(image, null)
                             collected += TimedFrame(
-                                ptsUs / 1000,
+                                (ptsUs - startUs) / 1000,
                                 BitmapPrep.fitSquareWithPadding(bitmap, targetPx),
                             )
                         }
                     }
                     decoder.releaseOutputBuffer(outIndex, false)
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 ||
-                        ptsUs > maxDurationUs
+                        ptsUs > endUs
                     ) {
                         outputDone = true
                     }
@@ -302,7 +378,12 @@ object VideoStickerConverter {
             }
 
             if (collected.isEmpty()) {
-                Log.w(TAG, "extractor path decoded no frames from ${videoFile.name}")
+                Log.w(
+                    TAG,
+                    "extractor path decoded no frames from ${videoFile.name}: " +
+                        "window ${startUs}..$endUs, saw $seenFrames frames " +
+                        "spanning $firstPts..$lastPts",
+                )
             }
             collected.takeIf { it.isNotEmpty() }
         } catch (e: Exception) {

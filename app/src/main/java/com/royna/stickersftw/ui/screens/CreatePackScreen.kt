@@ -39,6 +39,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +63,10 @@ import com.royna.stickersftw.ui.theme.appButtonColors
 fun CreatePackScreen(
     onBack: () -> Unit,
     botUsername: String? = null,
+    /** Runs newly picked media past the trim step before it lands in the
+     * list, so those edits happen once rather than at publish time. */
+    onPrepareMedia: (List<PickedMediaItem>, (List<PickedMediaItem>) -> Unit) -> Unit =
+        { items, ready -> ready(items) },
     /** Media the screen opens with, when it was reached from a share rather
      * than from the Create button. Seeded once; the user can still add to or
      * remove from it like anything they picked here themselves. */
@@ -75,20 +80,30 @@ fun CreatePackScreen(
     ) -> Unit,
 ) {
     val context = LocalContext.current
-    val mediaItems = remember { mutableStateListOf<PickedMediaItem>().apply { addAll(initialItems) } }
+    val mediaItems = remember { mutableStateListOf<PickedMediaItem>() }
     var title by rememberSaveable { mutableStateOf("") }
     var shortName by rememberSaveable { mutableStateOf("") }
     var pushToTelegram by rememberSaveable { mutableStateOf(true) }
     var addToWhatsapp by rememberSaveable { mutableStateOf(true) }
 
+    // Shared media reaches this screen through "Create a new pack", not the
+    // picker callback below. Run that initial batch through the same edit and
+    // URI-materialisation steps before it appears in the editable list.
+    LaunchedEffect(Unit) {
+        if (initialItems.isNotEmpty()) {
+            onPrepareMedia(initialItems) { mediaItems.addAll(it) }
+        }
+    }
+
     val pickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(30),
     ) { uris ->
-        for (uri in uris) {
+        val picked = uris.map { uri ->
             val mimeType = context.contentResolver.getType(uri)
             val kind = if (mimeType?.startsWith("video/") == true) PickedMediaKind.Video else PickedMediaKind.Image
-            mediaItems.add(PickedMediaItem(uri = uri.toString(), kind = kind))
+            PickedMediaItem(uri = uri.toString(), kind = kind)
         }
+        if (picked.isNotEmpty()) onPrepareMedia(picked) { mediaItems.addAll(it) }
     }
 
     val shortNameResult = if (shortName.isBlank()) null else ShortNameValidator.validate(shortName, botUsername)

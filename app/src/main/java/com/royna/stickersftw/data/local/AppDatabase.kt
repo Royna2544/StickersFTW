@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 4, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -43,6 +43,16 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds where a trimmed clip starts. Zero for everything that
+         * exists already, which is what those stickers were converted with. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE stickers ADD COLUMN trimStartMs INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -50,7 +60,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stickers_ftw.db",
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // Still the fallback for the one earlier bump that never
                     // got a migration written; 2 -> 3 now takes the path above
                     // instead of dropping everything.

@@ -183,4 +183,8 @@ data class PickedMediaItem(
     val uri: String,
     val kind: PickedMediaKind,
     val emoji: String = "🙂",
+    /** Where in a clip the sticker should start, for a video longer than a
+     * sticker is allowed to be. Zero for images and for clips that already
+     * fit. */
+    val trimStartMs: Long = 0L,
 )
