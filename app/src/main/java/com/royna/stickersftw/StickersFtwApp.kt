@@ -366,6 +366,11 @@ fun StickersFtwApp(
                         }
                     },
                     onViewAllStickers = { navController.navigate(Routes.grid(it)) },
+                    onAddStickers = { id, items ->
+                        if (viewModel.addStickersToPack(id, items)) {
+                            navController.navigate(Routes.conversion(id))
+                        }
+                    },
                 )
             }
             composable(Routes.UpdateDiff) { entry ->

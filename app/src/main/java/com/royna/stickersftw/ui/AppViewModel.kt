@@ -561,6 +561,21 @@ class AppViewModel(
         )
     }
 
+    /** "Add stickers" on a pack that has room left. Runs on the same operation
+     * pipeline as an import, so it gets the foreground service, the
+     * notification and the progress screen rather than silently converting in
+     * the background of whatever screen started it. */
+    fun addStickersToPack(packId: String, items: List<PickedMediaItem>): Boolean {
+        if (items.isEmpty()) return false
+        return start(
+            PackOperationRequest.AddStickers(
+                packId,
+                packs.value.firstOrNull { it.id == packId }?.title.orEmpty(),
+                items,
+            ),
+        )
+    }
+
     fun disableUpdatesForPack(packId: String) {
         viewModelScope.launch { packRepository.setUpdateCheckEnabled(packId, false) }
     }

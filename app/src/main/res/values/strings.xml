@@ -296,6 +296,15 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
         <item quantity="one">%1$d sticker was saved as a still image so the pack is all one kind, which is all WhatsApp accepts.</item>
         <item quantity="other">%1$d stickers were saved as still images so the pack is all one kind, which is all WhatsApp accepts.</item>
     </plurals>
+    <string name="action_add_stickers">Add stickers</string>
+    <string name="pack_detail_full">This pack is full. WhatsApp allows 30 stickers per pack.</string>
+    <string name="add_source_title">Add stickers from</string>
+    <string name="add_source_device_media">Photos and videos</string>
+    <string name="add_source_device_media_body">Pick from this device</string>
+    <plurals name="add_source_remaining">
+        <item quantity="one">Room for %1$d more in this pack.</item>
+        <item quantity="other">Room for %1$d more in this pack.</item>
+    </plurals>
     <plurals name="err_pack_capacity">
         <item quantity="one">This pack has room for %1$d more sticker.</item>
         <item quantity="other">This pack has room for %1$d more stickers.</item>
