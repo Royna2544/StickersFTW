@@ -42,4 +42,16 @@ data class PackEntity(
      * changes nothing there) and for anything converted before the setting
      * existed. */
     val conversionBias: String? = null,
+    /** What the provider reports as WhatsApp's `image_data_version`.
+     *
+     * WhatsApp caches a pack's assets against this value and only re-reads
+     * them when it changes, so every change to the *converted* content has to
+     * increment it. Left alone, adding or replacing a sticker succeeds
+     * everywhere in this app and changes nothing in WhatsApp, which looks like
+     * the write failed rather than the cache holding.
+     *
+     * Monotonic on purpose: a re-import of a pack WhatsApp has already seen
+     * carries the old value forward and bumps it, rather than restarting at 1
+     * and relying on "different" being enough. */
+    val imageDataVersion: Int = 1,
 )

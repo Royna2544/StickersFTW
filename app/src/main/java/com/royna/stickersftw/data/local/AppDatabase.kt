@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 3, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -30,6 +30,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the per-pack image_data_version WhatsApp caches against.
+         *
+         * Defaults to 1, which is exactly what the provider used to report for
+         * every pack, so packs WhatsApp has already cached keep the value it
+         * saw and only move once their content next changes. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE packs ADD COLUMN imageDataVersion INTEGER NOT NULL DEFAULT 1",
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -37,7 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "stickers_ftw.db",
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     // Still the fallback for the one earlier bump that never
                     // got a migration written; 2 -> 3 now takes the path above
                     // instead of dropping everything.
