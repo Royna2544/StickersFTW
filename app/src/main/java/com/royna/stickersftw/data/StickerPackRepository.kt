@@ -119,7 +119,7 @@ class StickerPackRepository(private val appContext: Context) {
                 PreviewResult.Loaded(
                     PackPreview(
                         shortName = dto.name,
-                        title = dto.title,
+                        title = sanitizeTitle(dto.title),
                         totalStickerCount = dto.stickers.size,
                         partCount = partRanges.size,
                         stickers = dto.stickers.map { PreviewSticker(it.id, it.emoji, it.thumb) },
@@ -469,7 +469,7 @@ class StickerPackRepository(private val appContext: Context) {
                 telegramSetName = setDto.name,
                 pushShortName = null,
                 sourceUrl = input,
-                title = setDto.title + titleSuffix,
+                title = sanitizeTitle(setDto.title) + titleSuffix,
                 publisher = "@$shortNameInput",
                 stickerCount = stickerDtos.size,
                 isAnimatedPack = false,
@@ -485,6 +485,10 @@ class StickerPackRepository(private val appContext: Context) {
                 updateAvailable = false,
                 updateCheckEnabled = existing?.updateCheckEnabled ?: true,
                 importPartIndex = partIndex,
+                // Carried over rather than reset: this row is being rebuilt
+                // under an id WhatsApp may already have cached. finalizePackReady
+                // moves it once the new content is actually on disk.
+                imageDataVersion = existing?.imageDataVersion ?: 1,
             ),
         )
         stickerDao.upsertAll(
@@ -566,7 +570,15 @@ class StickerPackRepository(private val appContext: Context) {
         // classified -- the server backend gives no usable type up front.
         // Downloads are the quick part, so this still lands well before the
         // conversion the user would otherwise sit through wondering.
-        val slowFormat = downloadedFiles.any { (_, _, type) -> type == StickerMediaType.Video }
+        //
+        // Lottie counts as slow too, not just video. Hot Cherry's 17 Lottie
+        // stickers took 4:55 with no warning shown at all, because every frame
+        // still has to be rendered one at a time and then run through the same
+        // re-encode ladder to fit 500KB. Which format it is barely changes how
+        // long the user waits.
+        val slowFormat = downloadedFiles.any { (_, _, type) ->
+            type == StickerMediaType.Video || type == StickerMediaType.AnimatedLottie
+        }
 
         for ((index, item) in downloadedFiles.withIndex()) {
             val (remoteId, file, type) = item
@@ -612,11 +624,31 @@ class StickerPackRepository(private val appContext: Context) {
         // user's call, and it used to be made silently by majority: a pack of
         // 26 stills and 2 animations quietly flattened both animations to
         // their first frame with nothing said.
-        var flattenedWarning: String? = null
+        // A sticker the decoder refused leaves the pack smaller than the count
+        // recorded when it was queued for download. Left unreconciled the pack
+        // claims stickers it does not have, and the user is told nothing at
+        // all -- which is how a 4-sticker pack shipped 3 without a word.
+        val warnings = mutableListOf<String>()
+        val droppedCount = downloadedFiles.size - convertedCount
+        if (droppedCount > 0) {
+            warnings += appContext.resources.getQuantityString(
+                R.plurals.warn_stickers_dropped,
+                droppedCount,
+                droppedCount,
+            )
+        }
+
         var splitPackId: String? = null
         var packIsAnimated = animatedCount >= staticCount && animatedCount > 0
         if (animatedCount > 0 && staticCount > 0) {
-            if (onMixedPack(animatedCount, staticCount)) {
+            // Both halves have to clear WhatsApp's 3-sticker floor for a split
+            // to be worth offering. One or two animated stickers among 27
+            // stills would otherwise become a second pack WhatsApp refuses to
+            // add -- strictly worse than flattening, and not a trade-off worth
+            // interrupting the conversion to ask about.
+            val canSplit = animatedCount >= SizeBudget.MIN_STICKERS &&
+                staticCount >= SizeBudget.MIN_STICKERS
+            if (canSplit && onMixedPack(animatedCount, staticCount)) {
                 splitPackId = splitAnimatedIntoOwnPack(packId, setDto, convertedForFixup, bias)
                 // Whatever is left in this pack is now one kind throughout.
                 packIsAnimated = false
@@ -624,7 +656,7 @@ class StickerPackRepository(private val appContext: Context) {
                 convertedForFixup.removeAll { it.isAnimated }
             } else {
                 val minority = if (packIsAnimated) staticCount else animatedCount
-                flattenedWarning = appContext.resources.getQuantityString(
+                warnings += appContext.resources.getQuantityString(
                     R.plurals.warn_mixed_pack_flattened,
                     minority,
                     minority,
@@ -649,8 +681,9 @@ class StickerPackRepository(private val appContext: Context) {
             packId,
             packIsAnimated,
             trayFile.absolutePath.takeIf { trayReady },
-            warning = flattenedWarning,
+            warning = warnings.joinToString(" ").ifEmpty { null },
             bias = bias,
+            stickerCount = convertedCount,
         )
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
@@ -658,6 +691,159 @@ class StickerPackRepository(private val appContext: Context) {
     }
 
     // ---- Create (local media -> Telegram push and/or WhatsApp) ------------
+
+    /** How many more stickers [packId] can take before it hits WhatsApp's cap.
+     *
+     * Counts stickers that actually converted, not rows: a failed import leaves
+     * its row behind to record what was lost, and those are neither served to
+     * WhatsApp nor counted against the pack, so they must not eat capacity
+     * either. */
+    suspend fun remainingCapacity(packId: String): Int =
+        SizeBudget.MAX_STICKERS - stickerDao.getStickersOnce(packId).count { it.convertedWhatsappPath != null }
+
+    /** Appends locally picked media to a pack that already exists.
+     *
+     * Deliberately not [publishPack] with extra rows: that converts every
+     * sticker in the pack every time, so adding one to a 29-sticker pack would
+     * re-run 30 conversions and cost minutes. Only the rows added here are
+     * touched; everything already converted is left exactly as it is.
+     *
+     * The pack's animated/static decision is already made and WhatsApp accepts
+     * a pack that is all one or all the other, so new stickers are forced to
+     * match it rather than being allowed to change it -- a still added to an
+     * animated pack is padded to a two-frame loop, and a clip added to a still
+     * pack keeps only its first frame. */
+    fun addStickersToPack(
+        packId: String,
+        items: List<PickedMediaItem>,
+        bias: ConversionBias = ConversionBias.Auto,
+    ): Flow<PackOperationProgress> = flow {
+        val pack = packDao.getPack(packId) ?: run {
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
+            return@flow
+        }
+        if (items.isEmpty()) {
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_no_stickers)))
+            return@flow
+        }
+
+        val existing = stickerDao.getStickersOnce(packId)
+        val existingUsable = existing.count { it.convertedWhatsappPath != null }
+        val remaining = SizeBudget.MAX_STICKERS - existingUsable
+        if (items.size > remaining) {
+            val message = appContext.resources.getQuantityString(
+                R.plurals.err_pack_capacity,
+                remaining,
+                remaining,
+            )
+            emit(PackOperationProgress.Failed(message))
+            return@flow
+        }
+
+        val packDir = File(appContext.filesDir, "packs/$packId")
+        val startPosition = (existing.maxOfOrNull { it.position } ?: -1) + 1
+        // Inserted one at a time for the generated row id, which names both the
+        // cached original and the converted output.
+        val newRowIds = items.mapIndexed { index, item ->
+            stickerDao.upsert(
+                StickerEntity(
+                    packId = packId,
+                    remoteId = null,
+                    position = startPosition + index,
+                    emojis = item.emoji,
+                    sniffedContentType = null,
+                    sourceLocalUri = item.uri,
+                    isVideo = item.kind == PickedMediaKind.Video,
+                    originalFilePath = null,
+                    convertedWhatsappPath = null,
+                    convertedTelegramPath = null,
+                    conversionStatus = "Pending",
+                    conversionError = null,
+                ),
+            )
+        }
+
+        val slowFormat = items.any { it.kind == PickedMediaKind.Video }
+        var added = 0
+        for ((index, rowId) in newRowIds.withIndex()) {
+            val item = items[index]
+            emit(
+                PackOperationProgress.Progress(
+                    appContext.getString(R.string.stage_converting_whatsapp, index + 1, items.size),
+                    0.1f + 0.8f * (index + 1) / items.size,
+                    slowFormat = slowFormat,
+                ),
+            )
+
+            val original = File(packDir, "original/$rowId.bin")
+            // A sticker that fails here has its row removed rather than kept as
+            // Failed. On an import the row is worth keeping -- it records which
+            // upstream sticker was lost -- but nothing refers back to a local
+            // pick, so a kept row would just sit in the pack forever. The count
+            // of dropped ones still reaches the user as the pack's warning.
+            if (!copyUriToFile(item.uri, original)) {
+                stickerDao.deleteByRowId(rowId)
+                continue
+            }
+
+            val type = if (item.kind == PickedMediaKind.Video) StickerMediaType.Video else StickerMediaType.Static
+            val output = File(packDir, "converted/$rowId.webp")
+            when (
+                val result = StickerConversionPipeline.convertForWhatsappForced(
+                    appContext,
+                    original,
+                    output,
+                    type,
+                    forceAnimated = pack.isAnimatedPack,
+                    bias = bias,
+                )
+            ) {
+                is StickerConvertResult.Success -> {
+                    added++
+                    updateStickerByRowId(rowId) {
+                        it.copy(
+                            originalFilePath = original.absolutePath,
+                            convertedWhatsappPath = output.absolutePath,
+                            conversionStatus = if (result.warning != null) "DoneWithWarning" else "Done",
+                            conversionError = result.warning,
+                        )
+                    }
+                }
+                is StickerConvertResult.Failed -> {
+                    stickerDao.deleteByRowId(rowId)
+                    original.delete()
+                }
+            }
+        }
+
+        if (added == 0) {
+            // The pack itself was never touched and is still usable, so this
+            // fails the operation without failing the pack.
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_no_stickers_converted)))
+            return@flow
+        }
+
+        val dropped = items.size - added
+        updatePack(packId) {
+            it.copy(
+                stickerCount = existingUsable + added,
+                warningMessage = if (dropped > 0) {
+                    appContext.resources.getQuantityString(R.plurals.warn_stickers_dropped, dropped, dropped)
+                } else {
+                    null
+                },
+                errorMessage = null,
+                // Same reason as finalizePackReady: without this WhatsApp keeps
+                // serving the cached pack and the new stickers never appear.
+                imageDataVersion = it.imageDataVersion + 1,
+            )
+        }
+
+        emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
+        emit(PackOperationProgress.Complete(packId, null))
+    }.catch { e ->
+        emit(PackOperationProgress.Failed(e.message ?: appContext.getString(R.string.err_import_failed)))
+    }.flowOn(Dispatchers.IO)
 
     suspend fun createPack(items: List<PickedMediaItem>, title: String, shortName: String): String {
         val packId = UUID.randomUUID().toString()
@@ -667,7 +853,11 @@ class StickerPackRepository(private val appContext: Context) {
                 id = packId,
                 origin = PackOrigin.Created.name,
                 telegramSetName = null,
-                pushShortName = shortName,
+                // Blank means the pack was created for WhatsApp only, so it
+                // has no Telegram identity at all. Stored as null rather than
+                // "" so a later push reports the missing name properly instead
+                // of asking Telegram to register an empty one.
+                pushShortName = shortName.ifBlank { null },
                 sourceUrl = null,
                 title = title,
                 publisher = "You",
@@ -1123,7 +1313,10 @@ class StickerPackRepository(private val appContext: Context) {
         val sortedStickers = stickers.sortedBy { it.position }
         return StickerPack(
             id = pack.id,
-            title = pack.title,
+            // Also scrubbed on the way in, but rows written before that was
+            // added still hold the raw title, and a stored one would otherwise
+            // keep garbling the UI around it forever.
+            title = sanitizeTitle(pack.title),
             author = pack.publisher,
             origin = PackOrigin.valueOf(pack.origin),
             stickerCount = pack.stickerCount,
@@ -1187,6 +1380,30 @@ class StickerPackRepository(private val appContext: Context) {
 
     private fun sanitizeFileName(raw: String): String =
         raw.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.ifBlank { "sticker" }
+
+    /** Strips Unicode bidirectional formatting characters out of a pack title.
+     *
+     * A pack title is remote text that this app then interpolates into its own
+     * sentences. A real Telegram pack turned up carrying an unterminated
+     * U+2067 RIGHT-TO-LEFT ISOLATE, and it did not stay inside the title: the
+     * overwrite prompt rendered as `"<title> is already in My Packs."');
+     * ?Overwrite it with this import`, with the app's own question mark
+     * dragged to the front of the line. Text that reorders the sentence around
+     * it can also reorder it into saying something else, which is the standard
+     * bidi spoofing trick and not something to leave in a confirmation dialog.
+     *
+     * Removing the controls rather than balancing them is deliberate: a title
+     * in a right-to-left script still lays out correctly from its own strong
+     * characters, so nothing legitimate is lost, and the title travels on into
+     * WhatsApp's UI and notifications where this app cannot wrap it in
+     * isolates even if it wanted to. */
+    private fun sanitizeTitle(raw: String): String =
+        raw.filterNot { char ->
+            val code = char.code
+            code in 0x202A..0x202E || // LRE, RLE, PDF, LRO, RLO
+                code in 0x2066..0x2069 || // LRI, RLI, FSI, PDI
+                code == 0x200E || code == 0x200F // LRM, RLM
+        }.trim().ifBlank { raw.trim() }
 
     private data class WhatsappConvertedSticker(
         val file: File,
@@ -1277,11 +1494,16 @@ class StickerPackRepository(private val appContext: Context) {
         trayIconPath: String?,
         warning: String? = null,
         bias: ConversionBias? = null,
+        /** What conversion actually produced. The count written at download
+         * time is the intended one, and a sticker the decoder refuses would
+         * otherwise leave the pack advertising more than it holds. */
+        stickerCount: Int? = null,
     ) {
         updatePack(packId) {
             it.copy(
                 status = PackStatus.Ready.name,
                 isAnimatedPack = isAnimated,
+                stickerCount = stickerCount ?: it.stickerCount,
                 trayIconPath = trayIconPath ?: it.trayIconPath,
                 warningMessage = warning,
                 errorMessage = null,
@@ -1289,6 +1511,9 @@ class StickerPackRepository(private val appContext: Context) {
                 // far the encoder may trade quality for frames, and a static
                 // sticker has no frames to trade.
                 conversionBias = bias?.name.takeIf { isAnimated },
+                // Every path that rebuilds a pack's converted files ends here,
+                // which makes this the one place the cache key has to move.
+                imageDataVersion = it.imageDataVersion + 1,
             )
         }
     }

@@ -244,6 +244,19 @@ fun ConversionScreen(
                     }
                 }
                 state.isComplete -> {
+                    // Keeping a mixed pack together costs the smaller group
+                    // its animation. Say so here, where the choice was just
+                    // made, rather than only on the pack's detail screen --
+                    // which the user has no particular reason to open.
+                    pack?.warningMessage?.let { warning ->
+                        Text(
+                            text = warning,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                    }
                     // Two packs came out of one import, so one "Add to
                     // WhatsApp" would quietly ship half the stickers.
                     if (splitPack != null) {

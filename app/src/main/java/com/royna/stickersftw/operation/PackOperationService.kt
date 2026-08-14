@@ -134,6 +134,11 @@ class PackOperationService : Service() {
                 settings.telegramUserId,
                 settings.conversionBias,
             )
+            is PackOperationRequest.AddStickers -> packs.addStickersToPack(
+                request.packId,
+                request.items,
+                settings.conversionBias,
+            )
         }
     }
 

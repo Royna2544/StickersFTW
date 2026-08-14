@@ -1,6 +1,8 @@
 package com.royna.stickersftw.operation
 
 import android.content.Intent
+import com.royna.stickersftw.model.PickedMediaItem
+import com.royna.stickersftw.model.PickedMediaKind
 
 /** A pack operation described as data rather than a lambda.
  *
@@ -40,6 +42,16 @@ sealed class PackOperationRequest {
         val addToWhatsapp: Boolean,
     ) : PackOperationRequest()
 
+    /** Appends already-picked local media to an existing pack. The items are
+     * carried as three parallel arrays because an Intent has no way to hold a
+     * list of PickedMediaItem without making it Parcelable, and the three
+     * fields it has are all primitives. */
+    data class AddStickers(
+        override val packId: String,
+        override val packTitle: String,
+        val items: List<PickedMediaItem>,
+    ) : PackOperationRequest()
+
     fun writeTo(intent: Intent): Intent = intent.apply {
         putExtra(KEY_PACK_ID, packId)
         putExtra(KEY_PACK_TITLE, packTitle)
@@ -60,6 +72,12 @@ sealed class PackOperationRequest {
                 putExtra(KEY_PUSH_TELEGRAM, pushToTelegram)
                 putExtra(KEY_ADD_WHATSAPP, addToWhatsapp)
             }
+            is AddStickers -> {
+                putExtra(KEY_KIND, KIND_ADD_STICKERS)
+                putExtra(KEY_ITEM_URIS, items.map { it.uri }.toTypedArray())
+                putExtra(KEY_ITEM_EMOJIS, items.map { it.emoji }.toTypedArray())
+                putExtra(KEY_ITEM_IS_VIDEO, items.map { it.kind == PickedMediaKind.Video }.toBooleanArray())
+            }
         }
     }
 
@@ -72,11 +90,15 @@ sealed class PackOperationRequest {
         private const val KEY_SELECTED_IDS = "selectedIds"
         private const val KEY_PUSH_TELEGRAM = "pushTelegram"
         private const val KEY_ADD_WHATSAPP = "addWhatsapp"
+        private const val KEY_ITEM_URIS = "itemUris"
+        private const val KEY_ITEM_EMOJIS = "itemEmojis"
+        private const val KEY_ITEM_IS_VIDEO = "itemIsVideo"
 
         private const val KIND_IMPORT = "import"
         private const val KIND_IMPORT_CUSTOM = "importCustom"
         private const val KIND_UPDATE = "update"
         private const val KIND_PUBLISH = "publish"
+        private const val KIND_ADD_STICKERS = "addStickers"
 
         fun readFrom(intent: Intent?): PackOperationRequest? {
             val packId = intent?.getStringExtra(KEY_PACK_ID) ?: return null
@@ -101,6 +123,26 @@ sealed class PackOperationRequest {
                     intent.getBooleanExtra(KEY_PUSH_TELEGRAM, false),
                     intent.getBooleanExtra(KEY_ADD_WHATSAPP, false),
                 )
+                KIND_ADD_STICKERS -> {
+                    val uris = intent.getStringArrayExtra(KEY_ITEM_URIS).orEmpty()
+                    val emojis = intent.getStringArrayExtra(KEY_ITEM_EMOJIS).orEmpty()
+                    val isVideo = intent.getBooleanArrayExtra(KEY_ITEM_IS_VIDEO) ?: BooleanArray(uris.size)
+                    AddStickers(
+                        packId,
+                        packTitle,
+                        uris.mapIndexed { index, uri ->
+                            PickedMediaItem(
+                                uri = uri,
+                                kind = if (isVideo.getOrElse(index) { false }) {
+                                    PickedMediaKind.Video
+                                } else {
+                                    PickedMediaKind.Image
+                                },
+                                emoji = emojis.getOrElse(index) { "🙂" },
+                            )
+                        },
+                    )
+                }
                 else -> null
             }
         }

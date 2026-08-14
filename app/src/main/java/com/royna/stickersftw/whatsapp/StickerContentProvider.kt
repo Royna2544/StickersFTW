@@ -111,7 +111,9 @@ class StickerContentProvider : ContentProvider() {
                     null, // sticker_pack_publisher_website
                     null, // sticker_pack_privacy_policy_website
                     null, // sticker_pack_license_agreement_website
-                    "1", // image_data_version
+                    // Caching is left on (below), so this is the only thing
+                    // that tells WhatsApp a pack's files have changed.
+                    pack.imageDataVersion.toString(),
                     0, // whatsapp_will_not_cache_stickers (0 = caching allowed)
                     if (pack.isAnimatedPack) 1 else 0,
                 ),
