@@ -27,6 +27,16 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import com.royna.stickersftw.conversion.SizeBudget
+import com.royna.stickersftw.model.PickedMediaItem
+import com.royna.stickersftw.model.PickedMediaKind
+import com.royna.stickersftw.ui.components.AddStickerSource
+import com.royna.stickersftw.ui.components.AddStickerSourceSheet
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -75,11 +85,48 @@ fun PackDetailScreen(
     onDeleteFromTelegram: (packId: String, onDone: (success: Boolean, error: String?) -> Unit) -> Unit = { _, _ -> },
     onForceRefreshFromTelegram: (packId: String, onDone: (message: String) -> Unit) -> Unit = { _, _ -> },
     onViewAllStickers: (String) -> Unit = {},
+    onAddStickers: (packId: String, items: List<PickedMediaItem>) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     var showDeleteTelegramConfirm by remember { mutableStateOf(false) }
     var deletingFromTelegram by remember { mutableStateOf(false) }
     var isForceRefreshing by remember { mutableStateOf(false) }
+    var showAddSourceSheet by remember { mutableStateOf(false) }
+
+    // Derived from the pack's own count, which is what actually converted --
+    // see StickerPackRepository.remainingCapacity for why failed rows must not
+    // be counted here.
+    val remaining = ((pack?.stickerCount ?: 0).let { SizeBudget.MAX_STICKERS - it }).coerceAtLeast(0)
+
+    fun deliver(uris: List<Uri>) {
+        val packId = pack?.id ?: return
+        if (uris.isEmpty()) return
+        onAddStickers(
+            packId,
+            uris.map { uri ->
+                val mimeType = context.contentResolver.getType(uri)
+                PickedMediaItem(
+                    uri = uri.toString(),
+                    kind = if (mimeType?.startsWith("video/") == true) {
+                        PickedMediaKind.Video
+                    } else {
+                        PickedMediaKind.Image
+                    },
+                )
+            },
+        )
+    }
+
+    // Two contracts because PickMultipleVisualMedia rejects a maxItems of 1,
+    // which is exactly the case when a pack has one slot left. The picker is
+    // capped at what will fit so the limit is enforced where the user is
+    // choosing, rather than as a rejection after the fact.
+    val pickMultiple = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(remaining.coerceAtLeast(2)),
+    ) { uris -> deliver(uris) }
+    val pickSingle = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> deliver(listOfNotNull(uri)) }
 
     LaunchedEffect(pack?.id) {
         pack?.let { onRefreshWhatsapp(it.id) }
@@ -159,6 +206,24 @@ fun PackDetailScreen(
             }
 
             if (pack.status == PackStatus.Ready) {
+                OutlinedButton(
+                    onClick = { showAddSourceSheet = true },
+                    enabled = remaining > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = null)
+                    Text(stringResource(R.string.action_add_stickers))
+                }
+                if (remaining == 0) {
+                    Text(
+                        text = stringResource(R.string.pack_detail_full),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (pack.status == PackStatus.Ready) {
                 AddToWhatsAppButton(
                     enabled = true,
                     whatsappAvailable = whatsappAvailable,
@@ -228,6 +293,24 @@ fun PackDetailScreen(
                 }
             },
             onCancel = { showDeleteTelegramConfirm = false },
+        )
+    }
+
+    if (showAddSourceSheet && pack != null) {
+        AddStickerSourceSheet(
+            remaining = remaining,
+            onPick = { source ->
+                showAddSourceSheet = false
+                when (source) {
+                    AddStickerSource.DeviceMedia -> {
+                        val request = PickVisualMediaRequest(
+                            ActivityResultContracts.PickVisualMedia.ImageAndVideo,
+                        )
+                        if (remaining == 1) pickSingle.launch(request) else pickMultiple.launch(request)
+                    }
+                }
+            },
+            onDismiss = { showAddSourceSheet = false },
         )
     }
 }
