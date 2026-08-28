@@ -7,7 +7,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Builds Matroska by hand rather than shipping a real sticker as a fixture:
+/** Builds Matroska directly rather than shipping a real sticker as a fixture:
  * the parser's job is entirely structural, and a synthetic file can exercise
  * the shapes that matter -- including the ones a real file never would, like
  * lacing -- without committing someone else's artwork to the repo. */

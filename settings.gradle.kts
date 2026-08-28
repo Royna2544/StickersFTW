@@ -24,4 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "FTW"
 include(":app")
- 
+include(":conversion-core")

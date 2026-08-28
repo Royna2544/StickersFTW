@@ -88,6 +88,32 @@ class NativeWebpAnimEncoderInstrumentedTest {
     }
 
     @Test
+    fun repeatedStillRemainsARealAnimationWithoutChangingTheImage() {
+        val original = frame(Color.MAGENTA, transparentHalf = true)
+        val bytes = requireNotNull(
+            NativeWebpAnimEncoder.encodeRepeatedFrame(
+                bitmap = original,
+                frameDurationMs = 100,
+                loopCount = 0,
+                quality = 80f,
+                alphaQuality = 100,
+                method = 4,
+            ),
+        )
+
+        val ids = chunks(bytes)
+        assertTrue("expected ANIM chunk, got $ids", "ANIM" in ids)
+        assertEquals("expected two structural frames, got $ids", 2, ids.count { it == "ANMF" })
+
+        // BitmapFactory exposes frame zero; the host-native test compares both
+        // decoded frames byte-for-byte. Keep this assertion here to also cover
+        // the Bitmap/JNI adapter and alpha handling on Android.
+        val decoded = requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
+        assertEquals(0, Color.alpha(decoded.getPixel(2, SIZE / 2)))
+        assertEquals(255, Color.alpha(decoded.getPixel(SIZE - 3, SIZE / 2)))
+    }
+
+    @Test
     fun preservesTransparency() {
         val bytes = encode(
             listOf(
