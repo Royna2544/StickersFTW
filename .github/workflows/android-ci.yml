@@ -43,8 +43,19 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+      # This exercises the conversion implementation as ordinary host C. It
+      # deliberately does not boot ART, an emulator, or the Android runtime.
+      - name: Run ART-free native tests
+        run: |
+          CMAKE="$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+          "$CMAKE" -S app/src/main/cpp -B build/stickerwebp-host \
+            -DSTICKERSFTW_BUILD_NATIVE_TESTS=ON
+          "$CMAKE" --build build/stickerwebp-host --target stickerwebp_core_test
+          "$ANDROID_HOME/cmake/3.22.1/bin/ctest" \
+            --test-dir build/stickerwebp-host --output-on-failure
+
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
+        run: ./gradlew :conversion-core:test :app:testDebugUnitTest
 
       - name: Run lint
         run: ./gradlew lintDebug
@@ -72,4 +83,5 @@ jobs:
           name: reports
           path: |
             app/build/reports/tests/testDebugUnitTest
+            conversion-core/build/reports/tests/test
             app/build/reports/lint-results-debug.html

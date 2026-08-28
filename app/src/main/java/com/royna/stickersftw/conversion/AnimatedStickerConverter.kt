@@ -31,14 +31,17 @@ object AnimatedStickerConverter {
         drawable.setBounds(0, 0, targetPx, targetPx)
 
         val durationMs = composition.duration.toLong().coerceIn(1L, SizeBudget.MAX_TOTAL_DURATION_MS)
-        val fps = composition.frameRate.takeIf { it > 0f } ?: 30f
-        val frameIntervalMs = (1000.0 / fps).coerceAtLeast(SizeBudget.MIN_FRAME_DURATION_MS.toDouble())
-        val frameCount = (durationMs / frameIntervalMs).toInt().coerceIn(1, MAX_FRAMES)
+        val fps = composition.frameRate.takeIf { it > 0f }?.toDouble() ?: 30.0
+        val timestamps = FrameSamplingPolicy.sampleTimestampsMs(
+            durationMs = durationMs,
+            sourceFps = fps,
+            maxFrames = MAX_FRAMES,
+            minFrameDurationMs = SizeBudget.MIN_FRAME_DURATION_MS,
+        ).takeIf { it.isNotEmpty() } ?: return null
 
         val frames = mutableListOf<TimedFrame>()
-        for (i in 0 until frameCount) {
+        for (timestampMs in timestamps) {
             coroutineContext.ensureActive()
-            val timestampMs = (i * frameIntervalMs).toLong()
             val progress = (timestampMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
             drawable.progress = progress
 

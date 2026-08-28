@@ -231,18 +231,46 @@ object VideoStickerConverter {
         ) { pts, image -> alphaPlanes[pts] = lumaPlane(image) }
         if (!alphaDecoded || alphaPlanes.isEmpty()) return null
 
+        // A decoder is allowed to drop an output. Never turn that one missing
+        // alpha plane into a fully opaque colour frame: transparent regions
+        // would flash black/opaque for exactly that frame. Hold the previous
+        // sampled frame a little longer by omitting unmatched timestamps.
+        val matchedWanted = wanted.filterTo(LinkedHashSet()) { it in alphaPlanes }
+        if (matchedWanted.isEmpty()) return null
+        if (matchedWanted.size != wanted.size) {
+            Log.w(
+                TAG,
+                "alpha decoder produced ${matchedWanted.size}/${wanted.size} sampled frames; " +
+                    "dropping unmatched colour frames",
+            )
+        }
+
         val collected = mutableListOf<TimedFrame>()
         val colourDecoded = decodeStream(
             track,
             track.frames.map { it.presentationTimeUs to it.colour },
-            wanted,
+            matchedWanted,
         ) { pts, image ->
-            val bitmap = imageToBitmap(image, alphaPlanes[pts])
+            val bitmap = imageToBitmap(image, requireNotNull(alphaPlanes[pts]))
             // Rebased so the sticker starts at zero however far in the window
             // begins; WebpAnimationEncoder reads these as frame timings.
             collected += TimedFrame((pts - startUs) / 1000, prepareFrame(bitmap, targetPx, crop))
         }
         if (!colourDecoded) return null
+
+        // An interior omission naturally extends the preceding frame to the
+        // next timestamp. A missing final output has no next timestamp, and a
+        // missing first output is rebased away below; append the same last
+        // bitmap at a policy-computed marker so neither case shortens the
+        // complete loop. WebPAnimEncoder coalesces this identical hold.
+        FrameSamplingPolicy.trailingHoldTimestampMs(
+            wantedTimestampsMs = wanted.map { (it - startUs) / 1000 },
+            decodedTimestampsMs = collected.map { it.timestampMs },
+        )?.let { holdTimestampMs ->
+            collected.lastOrNull()?.let { last ->
+                collected += last.copy(timestampMs = holdTimestampMs)
+            }
+        }
 
         return collected.takeIf { it.isNotEmpty() }
     }

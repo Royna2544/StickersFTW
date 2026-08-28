@@ -42,5 +42,5 @@ object SizeBudget {
 
 /** Resolves a persisted clip length for one destination. Zero (and invalid
  * negative values) means legacy behavior: use that destination's maximum. */
-internal fun effectiveTrimDurationMs(trimDurationMs: Long, destinationMaxMs: Long): Long =
+fun effectiveTrimDurationMs(trimDurationMs: Long, destinationMaxMs: Long): Long =
     trimDurationMs.takeIf { it > 0L }?.coerceAtMost(destinationMaxMs) ?: destinationMaxMs

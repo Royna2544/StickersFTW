@@ -29,13 +29,20 @@ class NativeWebpAnimEncoder private constructor(
      * hide a real bug in the caller. */
     fun addFrame(bitmap: Bitmap, timestampMs: Int): Boolean {
         check(handle != 0L) { "Encoder already released" }
-        val source = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+        val copied = bitmap.config != Bitmap.Config.ARGB_8888
+        val source = if (!copied) {
             bitmap
         } else {
             // HARDWARE and RGB_565 bitmaps have no lockable RGBA_8888 buffer.
-            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return false
         }
-        return nativeAddFrame(handle, source, timestampMs)
+        return try {
+            nativeAddFrame(handle, source, source.isPremultiplied, timestampMs)
+        } finally {
+            // This is a private synchronous conversion copy, so no drawable
+            // or caller can still reference it after the native call returns.
+            if (copied) source.recycle()
+        }
     }
 
     fun assemble(totalDurationMs: Int): ByteArray? {
@@ -60,6 +67,39 @@ class NativeWebpAnimEncoder private constructor(
             return if (handle == 0L) null else NativeWebpAnimEncoder(handle, width, height)
         }
 
+        /** Builds a genuine two-frame animation whose decoded frames are
+         * pixel-identical. The portable native core encodes [bitmap] once and
+         * pushes the same compressed payload into WebPMux twice, bypassing
+         * WebPAnimEncoder's duplicate-frame coalescing. */
+        fun encodeRepeatedFrame(
+            bitmap: Bitmap,
+            frameDurationMs: Int,
+            loopCount: Int,
+            quality: Float,
+            alphaQuality: Int,
+            method: Int,
+        ): ByteArray? {
+            val copied = bitmap.config != Bitmap.Config.ARGB_8888
+            val source = if (!copied) {
+                bitmap
+            } else {
+                bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+            }
+            return try {
+                nativeEncodeRepeatedFrame(
+                    source,
+                    source.isPremultiplied,
+                    frameDurationMs,
+                    loopCount,
+                    quality,
+                    alphaQuality,
+                    method,
+                )
+            } finally {
+                if (copied) source.recycle()
+            }
+        }
+
         @JvmStatic
         private external fun nativeCreate(width: Int, height: Int, loopCount: Int, minimizeSize: Boolean): Long
 
@@ -67,10 +107,26 @@ class NativeWebpAnimEncoder private constructor(
         private external fun nativeConfigure(handle: Long, quality: Float, alphaQuality: Int, method: Int): Boolean
 
         @JvmStatic
-        private external fun nativeAddFrame(handle: Long, bitmap: Bitmap, timestampMs: Int): Boolean
+        private external fun nativeAddFrame(
+            handle: Long,
+            bitmap: Bitmap,
+            isPremultiplied: Boolean,
+            timestampMs: Int,
+        ): Boolean
 
         @JvmStatic
         private external fun nativeAssemble(handle: Long, totalDurationMs: Int): ByteArray?
+
+        @JvmStatic
+        private external fun nativeEncodeRepeatedFrame(
+            bitmap: Bitmap,
+            isPremultiplied: Boolean,
+            frameDurationMs: Int,
+            loopCount: Int,
+            quality: Float,
+            alphaQuality: Int,
+            method: Int,
+        ): ByteArray?
 
         @JvmStatic
         private external fun nativeRelease(handle: Long)

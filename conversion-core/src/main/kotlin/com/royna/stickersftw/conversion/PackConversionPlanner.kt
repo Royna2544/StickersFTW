@@ -1,6 +1,6 @@
 package com.royna.stickersftw.conversion
 
-/** Pure Kotlin, no Android framework dependency -- unit-testable on the JVM. */
+/** Pure Kotlin, with no Android framework dependency. */
 sealed class PlannerResult<T> {
     data class Ok<T>(val items: List<T>, val warning: String? = null) : PlannerResult<T>()
     data class Rejected<T>(val reason: String) : PlannerResult<T>()

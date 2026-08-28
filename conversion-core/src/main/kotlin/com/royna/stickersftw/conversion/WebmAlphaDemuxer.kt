@@ -1,6 +1,5 @@
 package com.royna.stickersftw.conversion
 
-import android.media.MediaFormat
 import java.io.File
 
 /** One frame of a WebM video track: the primary bitstream, plus the separate
@@ -25,7 +24,7 @@ data class WebmAlphaTrack(
  * per frame in the BlockGroup's BlockAdditional, with `Video > AlphaMode = 1`
  * announcing it.
  *
- * This exists because [android.media.MediaExtractor] has no API for reading
+ * This exists because Android's `MediaExtractor` has no API for reading
  * block additions at all. It hands MediaCodec the primary block and the alpha
  * bitstream is simply unreachable through it, which is why every converted
  * video sticker came out opaque -- the transparent regions decode to whatever
@@ -175,8 +174,8 @@ object WebmAlphaDemuxer {
 
             if (type != TRACK_TYPE_VIDEO) continue
             val mime = when (codecId) {
-                "V_VP9" -> MediaFormat.MIMETYPE_VIDEO_VP9
-                "V_VP8" -> MediaFormat.MIMETYPE_VIDEO_VP8
+                "V_VP9" -> "video/x-vnd.on2.vp9"
+                "V_VP8" -> "video/x-vnd.on2.vp8"
                 else -> return null
             }
             if (width <= 0 || height <= 0) return null
@@ -336,5 +335,5 @@ object WebmAlphaDemuxer {
     }
 
     private fun string(data: ByteArray, element: Element): String =
-        String(data, element.start, element.end - element.start, Charsets.US_ASCII).trimEnd(' ')
+        String(data, element.start, element.end - element.start, Charsets.US_ASCII).trimEnd('\u0000')
 }
