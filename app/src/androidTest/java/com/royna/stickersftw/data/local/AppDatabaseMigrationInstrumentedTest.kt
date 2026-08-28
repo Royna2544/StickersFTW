@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AppDatabaseMigrationInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-    private val databaseName = "migration-6-7-test.db"
+    private val databaseName = "migration-version-test.db"
     private var roomDatabase: AppDatabase? = null
 
     @Before
@@ -31,11 +31,11 @@ class AppDatabaseMigrationInstrumentedTest {
     }
 
     @Test
-    fun migrationSixToSevenPreservesRowsAndBackfillsRevisionAnchors() {
+    fun migrationSixToEightPreservesRowsAndBackfillsRevisionAnchors() {
         createVersionSixDatabase()
 
         val migrated = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-            .addMigrations(AppDatabase.MIGRATION_6_7)
+            .addMigrations(AppDatabase.MIGRATION_6_7, AppDatabase.MIGRATION_7_8)
             .build()
             .also { roomDatabase = it }
 
@@ -54,6 +54,40 @@ class AppDatabaseMigrationInstrumentedTest {
         assertEquals(7, full.telegramSyncedDataVersion)
         assertNull(partial.telegramSyncedDataVersion)
         assertNull(imported.telegramSyncedDataVersion)
+        assertNull(imported.convertedAppVersionCode)
+        assertNull(imported.convertedAppVersionName)
+        assertNull(imported.sourcePartIndex)
+        assertNull(runBlocking { migrated.stickerDao().getStickersOnce("imported") }.first().remoteStableId)
+    }
+
+    @Test
+    fun migrationSevenToEightPreservesRowsAndLeavesHistoricalBuildUnknown() {
+        createVersionSevenDatabase()
+
+        val migrated = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
+            .addMigrations(AppDatabase.MIGRATION_7_8)
+            .build()
+            .also { roomDatabase = it }
+
+        val imported = runBlocking { migrated.packDao().getPack("imported")!! }
+        assertEquals("Imported", imported.origin)
+        assertEquals(7, imported.imageDataVersion)
+        assertNull(imported.convertedAppVersionCode)
+        assertNull(imported.convertedAppVersionName)
+        assertNull(imported.sourcePartIndex)
+        assertNull(runBlocking { migrated.stickerDao().getStickersOnce("imported") }.first().remoteStableId)
+
+        runBlocking {
+            migrated.packDao().upsert(
+                imported.copy(
+                    convertedAppVersionCode = 3,
+                    convertedAppVersionName = "1.1",
+                ),
+            )
+        }
+        val stamped = runBlocking { migrated.packDao().getPack("imported")!! }
+        assertEquals(3, stamped.convertedAppVersionCode)
+        assertEquals("1.1", stamped.convertedAppVersionName)
     }
 
     private fun createVersionSixDatabase() {
@@ -125,6 +159,17 @@ class AppDatabaseMigrationInstrumentedTest {
             insertSticker(db, 3L, "created-partial", position = 0, telegramPath = null)
             insertSticker(db, 4L, "imported", position = 0, telegramPath = "/tg/4")
             db.version = 6
+        }
+    }
+
+    private fun createVersionSevenDatabase() {
+        createVersionSixDatabase()
+        SQLiteDatabase.openOrCreateDatabase(context.getDatabasePath(databaseName), null).use { db ->
+            db.execSQL("ALTER TABLE stickers ADD COLUMN trimDurationMs INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE packs ADD COLUMN trayStickerRowId INTEGER")
+            db.execSQL("ALTER TABLE packs ADD COLUMN whatsappSyncedDataVersion INTEGER")
+            db.execSQL("ALTER TABLE packs ADD COLUMN telegramSyncedDataVersion INTEGER")
+            db.version = 7
         }
     }
 

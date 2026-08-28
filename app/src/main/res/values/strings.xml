@@ -6,6 +6,8 @@
     <string name="cd_back">Back</string>
     <string name="app_tagline">For The Win · For Telegram WhatsApp</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_yes">Yes</string>
+    <string name="action_no">No</string>
     <string name="action_save">Save</string>
     <string name="action_edit">Edit</string>
     <string name="label_telegram">Telegram</string>
@@ -94,6 +96,10 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="duplicate_pack_title">Pack already imported</string>
     <string name="duplicate_pack_message">\"%1$s\" is already in My Packs. Overwrite it with this import?</string>
     <string name="action_overwrite">Overwrite</string>
+
+    <!-- Old-conversion Telegram freshness prompt -->
+    <string name="reimport_updated_pack_title">Re-import \"%1$s\"?</string>
+    <string name="reimport_updated_pack_message">The pack is updated on Telegram, reimport anyway?</string>
 
     <!-- Update diff screen -->
     <string name="update_diff_title">What changed</string>
@@ -210,6 +216,11 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="pack_detail_not_found">Pack not found</string>
     <string name="pack_detail_preview">Preview</string>
     <string name="pack_detail_no_stickers">No converted stickers yet.</string>
+    <string name="pack_detail_converted_app_version">Converted with app version %1$s</string>
+    <string name="pack_detail_converted_app_version_unknown">Unknown</string>
+    <string name="pack_detail_converted_app_build">build %1$d</string>
+    <string name="action_reconvert_pack">Re-convert with this app version</string>
+    <string name="reconversion_checking_telegram">Checking Telegram…</string>
     <string name="action_view_all_stickers">  Edit stickers</string>
     <string name="action_push_to_telegram">  Push to Telegram</string>
     <string name="action_finish_push_to_telegram">  Finish pushing to Telegram</string>
@@ -278,6 +289,14 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="err_select_at_most">Select at most %1$d stickers.</string>
     <string name="err_import_failed">Import failed.</string>
     <string name="err_update_failed">Update failed.</string>
+    <string name="err_reimport_selection_missing">Too few of this pack\'s selected stickers still exist on Telegram to re-import it.</string>
+    <string name="err_reimport_too_few_converted">Only %1$d stickers converted during re-import; at least %2$d are required. The existing pack was kept.</string>
+    <string name="err_pack_not_ready_for_reconversion">This pack is not ready to be re-converted.</string>
+    <string name="err_reconversion_source_missing">One or more original sticker files are missing. Re-import the pack from Telegram instead.</string>
+    <string name="err_pack_changed_during_reconversion">The pack changed while it was being re-converted. Nothing was replaced.</string>
+    <string name="err_pack_changed_during_refresh">The pack changed while Telegram was being checked. Try again.</string>
+    <string name="err_split_part_duplicate_import">This Telegram part is already stored as separate static and animated packs. Delete both halves before importing it again.</string>
+    <string name="err_reconversion_failed">Re-conversion failed. The existing pack was kept.</string>
     <string name="err_no_linked_telegram_source">This pack has no linked Telegram source.</string>
     <string name="err_pack_not_found">Pack not found.</string>
     <string name="err_pack_no_stickers">This pack has no stickers.</string>

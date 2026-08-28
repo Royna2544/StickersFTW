@@ -20,8 +20,11 @@ import androidx.room.PrimaryKey
 data class StickerEntity(
     @PrimaryKey(autoGenerate = true) val rowId: Long = 0,
     val packId: String,
-    /** Telegram file_unique_id, for stickers that came from a fetched set. */
+    /** Telegram download locator (`file_id`) for imported stickers. */
     val remoteId: String?,
+    /** Telegram's stable `file_unique_id`. Kept separately because `file_id`
+     * can rotate and is still required for downloading the current object. */
+    val remoteStableId: String? = null,
     val position: Int,
     /** Comma-joined, 1-3 emoji -- matches both WhatsApp's and Telegram's
      * per-sticker emoji column shape directly. */

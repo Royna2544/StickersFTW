@@ -65,7 +65,21 @@ object VideoStickerConverter {
          * almost never the opening seconds, which is all this used to take. */
         startMs: Long = 0L,
         crop: MediaCrop? = null,
-    ): List<TimedFrame>? {
+    ): List<TimedFrame>? = extractFrameSequence(
+        videoFile,
+        targetPx,
+        maxDurationMs,
+        startMs,
+        crop,
+    )?.frames
+
+    suspend fun extractFrameSequence(
+        videoFile: File,
+        targetPx: Int,
+        maxDurationMs: Long = SizeBudget.MAX_TOTAL_DURATION_MS,
+        startMs: Long = 0L,
+        crop: MediaCrop? = null,
+    ): TimedFrameSequence? {
         WebmAlphaDemuxer.readAlphaTrack(videoFile)?.let { track ->
             // A failure here falls through rather than giving up: an opaque
             // sticker beats no sticker, and the extractor path can still
@@ -90,7 +104,7 @@ object VideoStickerConverter {
                 startMs = startMs,
                 crop = null,
                 maxFrames = 1,
-            )?.firstOrNull()?.bitmap?.let { return it }
+            )?.frames?.firstOrNull()?.bitmap?.let { return it }
         }
         return extractFramesViaExtractor(
             videoFile,
@@ -99,7 +113,7 @@ object VideoStickerConverter {
             startMs = startMs,
             crop = null,
             maxFrames = 1,
-        )?.firstOrNull()?.bitmap
+        )?.frames?.firstOrNull()?.bitmap
     }
 
     /** Shifts the kept frames so the first one sits at zero.
@@ -109,10 +123,12 @@ object VideoStickerConverter {
      * its first frame a frame-interval late. Small enough not to see, but it
      * makes "the sticker starts where you chose" true only approximately, and
      * an invariant that is nearly true is one nothing downstream can rely on. */
-    private fun rebased(frames: List<TimedFrame>): List<TimedFrame> {
-        val offset = frames.firstOrNull()?.timestampMs ?: return frames
-        if (offset == 0L) return frames
-        return frames.map { it.copy(timestampMs = it.timestampMs - offset) }
+    private fun rebased(sequence: TimedFrameSequence): TimedFrameSequence {
+        val offset = sequence.frames.firstOrNull()?.timestampMs ?: return sequence
+        if (offset == 0L) return sequence
+        return sequence.copy(
+            frames = sequence.frames.map { it.copy(timestampMs = it.timestampMs - offset) },
+        )
     }
 
     /** How long [videoFile] runs, or null when it will not say.
@@ -203,25 +219,40 @@ object VideoStickerConverter {
         startMs: Long,
         crop: MediaCrop?,
         maxFrames: Int,
-    ): List<TimedFrame>? {
+    ): TimedFrameSequence? {
         if (track.frames.any { it.alpha == null }) return null
 
         // Both bitstreams are decoded from the start regardless -- VP9 frames
         // depend on what came before, so there is nothing to skip to. The
         // window only decides which decoded frames are kept.
         val startUs = startMs * 1000
-        val endUs = startUs + maxDurationMs * 1000
-        val sourceUs = minOf(track.frames.last().presentationTimeUs - startUs, maxDurationMs * 1000)
-        val clock = FrameClock(sampleIntervalUs(sourceUs))
+        val maxDurationUs = maxDurationMs * 1000
+        val endUs = startUs + maxDurationUs
+        val declaredUs = track.durationUs
+            ?.minus(startUs)
+            ?.takeIf { it > 0L }
+        val representedUs = minOf(
+            declaredUs ?: (track.frames.last().presentationTimeUs - startUs),
+            maxDurationUs,
+        )
+        val clock = FrameClock(sampleIntervalUs(representedUs))
         val wanted = LinkedHashSet<Long>()
         for (frame in track.frames) {
             if (frame.presentationTimeUs < startUs) continue
-            if (frame.presentationTimeUs > endUs) break
+            // The requested duration is an end-exclusive playback span. A
+            // source frame exactly on the boundary belongs to the next clip,
+            // otherwise the encoder must stretch the result by at least 1ms.
+            if (frame.presentationTimeUs >= endUs) break
             if (!clock.accept(frame.presentationTimeUs - startUs)) continue
             wanted += frame.presentationTimeUs
             if (wanted.size >= maxFrames) break
         }
         if (wanted.isEmpty()) return null
+        val intendedDurationMs = declaredUs
+            ?.let { minOf(it, maxDurationUs) }
+            ?.let { (it + 999L) / 1000L }
+            ?: FrameSamplingPolicy.durationMs(wanted.map { (it - startUs) / 1000 })
+            ?: return null
 
         val alphaPlanes = HashMap<Long, LumaPlane>(wanted.size)
         val alphaDecoded = decodeStream(
@@ -258,21 +289,8 @@ object VideoStickerConverter {
         }
         if (!colourDecoded) return null
 
-        // An interior omission naturally extends the preceding frame to the
-        // next timestamp. A missing final output has no next timestamp, and a
-        // missing first output is rebased away below; append the same last
-        // bitmap at a policy-computed marker so neither case shortens the
-        // complete loop. WebPAnimEncoder coalesces this identical hold.
-        FrameSamplingPolicy.trailingHoldTimestampMs(
-            wantedTimestampsMs = wanted.map { (it - startUs) / 1000 },
-            decodedTimestampsMs = collected.map { it.timestampMs },
-        )?.let { holdTimestampMs ->
-            collected.lastOrNull()?.let { last ->
-                collected += last.copy(timestampMs = holdTimestampMs)
-            }
-        }
-
         return collected.takeIf { it.isNotEmpty() }
+            ?.let { TimedFrameSequence(it, intendedDurationMs) }
     }
 
     /** Feeds one already-demuxed bitstream through a decoder, invoking
@@ -343,7 +361,7 @@ object VideoStickerConverter {
         startMs: Long,
         crop: MediaCrop?,
         maxFrames: Int,
-    ): List<TimedFrame>? {
+    ): TimedFrameSequence? {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
         return try {
@@ -372,12 +390,12 @@ object VideoStickerConverter {
 
             val maxDurationUs = maxDurationMs * 1000
             val endUs = startUs + maxDurationUs
-            val declaredUs = if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                format.getLong(MediaFormat.KEY_DURATION) - startUs
-            } else {
-                maxDurationUs
-            }
-            val clock = FrameClock(sampleIntervalUs(minOf(declaredUs, maxDurationUs)))
+            val declaredUs = format.takeIf { it.containsKey(MediaFormat.KEY_DURATION) }
+                ?.getLong(MediaFormat.KEY_DURATION)
+                ?.minus(startUs)
+                ?.takeIf { it > 0L }
+            val representedUs = minOf(declaredUs ?: maxDurationUs, maxDurationUs)
+            val clock = FrameClock(sampleIntervalUs(representedUs))
 
             val collected = mutableListOf<TimedFrame>()
             val bufferInfo = MediaCodec.BufferInfo()
@@ -415,7 +433,7 @@ object VideoStickerConverter {
                     }
                     val shouldSample = bufferInfo.size > 0 &&
                         ptsUs >= startUs &&
-                        ptsUs <= endUs &&
+                        ptsUs < endUs &&
                         clock.accept(ptsUs - startUs)
                     if (shouldSample) {
                         decoder.getOutputImage(outIndex)?.use { image ->
@@ -428,7 +446,7 @@ object VideoStickerConverter {
                     }
                     decoder.releaseOutputBuffer(outIndex, false)
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0 ||
-                        ptsUs > endUs
+                        ptsUs >= endUs
                     ) {
                         outputDone = true
                     }
@@ -443,7 +461,13 @@ object VideoStickerConverter {
                         "spanning $firstPts..$lastPts",
                 )
             }
-            collected.takeIf { it.isNotEmpty() }
+            collected.takeIf { it.isNotEmpty() }?.let { frames ->
+                val durationMs = declaredUs
+                    ?.let { minOf(it, maxDurationUs) }
+                    ?.let { (it + 999L) / 1000L }
+                    ?: FrameSamplingPolicy.durationMs(frames.map { it.timestampMs })
+                TimedFrameSequence(frames, durationMs)
+            }
         } catch (e: Exception) {
             // A bare swallow here made every decoder problem surface as the
             // same unexplained "could not decode any usable frames", with

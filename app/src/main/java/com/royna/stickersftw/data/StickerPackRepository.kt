@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.room.withTransaction
+import com.royna.stickersftw.BuildConfig
 import com.royna.stickersftw.R
 import com.royna.stickersftw.conversion.PackConversionPlanner
 import com.royna.stickersftw.conversion.PlannerResult
@@ -34,6 +35,7 @@ import com.royna.stickersftw.model.PickedMediaItem
 import com.royna.stickersftw.model.PickedMediaKind
 import com.royna.stickersftw.model.StickerGridItem
 import com.royna.stickersftw.model.StickerPack
+import com.royna.stickersftw.model.deriveNeedsReconversion
 import com.royna.stickersftw.model.deriveTelegramFreshness
 import com.royna.stickersftw.model.deriveWhatsappFreshness
 import com.royna.stickersftw.model.parseStickerEmojis
@@ -232,6 +234,9 @@ class StickerPackRepository(private val appContext: Context) {
                             updateAvailable = false,
                             updateCheckEnabled = false,
                             importPartIndex = 0,
+                            sourcePartIndex = null,
+                            convertedAppVersionCode = null,
+                            convertedAppVersionName = null,
                             imageDataVersion = 1,
                             trayStickerRowId = null,
                             whatsappSyncedDataVersion = null,
@@ -246,6 +251,7 @@ class StickerPackRepository(private val appContext: Context) {
                                     rowId = 0,
                                     packId = newPackId,
                                     remoteId = null,
+                                    remoteStableId = null,
                                     sourceLocalUri = staged.originalPath
                                         ?.let { Uri.fromFile(File(it)).toString() },
                                     originalFilePath = staged.originalPath,
@@ -796,15 +802,13 @@ class StickerPackRepository(private val appContext: Context) {
     }.flowOn(Dispatchers.IO)
 
     /** Re-fetches an already-imported pack's Telegram source and re-slices it
-     * from scratch using the same part index it was originally imported
-     * with (always 0 for a custom or single-part import) -- this is what
-     * "Update" means: not a merge/reconciliation, a fresh re-import under
-     * the same pack id. */
+     * from scratch using the same part index or selected subset it was
+     * originally imported with. This is a fresh re-import under the same pack
+     * id rather than a merge/reconciliation. */
     fun applyPackUpdate(
         packId: String,
         backendConfig: TelegramBackendConfig,
         bias: ConversionBias = ConversionBias.Auto,
-        onMixedPack: suspend (animated: Int, static: Int) -> Boolean = { _, _ -> false },
     ): Flow<PackOperationProgress> = flow {
         val pack = packDao.getPack(packId) ?: run {
             emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_found)))
@@ -815,25 +819,564 @@ class StickerPackRepository(private val appContext: Context) {
             return@flow
         }
         val input = pack.sourceUrl ?: setName
-        val fetched = fetchStickerSet(packId, backendConfig, input) ?: return@flow
+        val fetched = fetchStickerSet(
+            packId,
+            backendConfig,
+            input,
+            force = true,
+            preserveReadyPackOnFailure = true,
+        ) ?: return@flow
         val (shortNameInput, setDto) = fetched
 
         val countResult = PackConversionPlanner.applyCountRules(setDto.stickers)
         if (countResult is PlannerResult.Rejected) {
-            failImport(packId, countResult.reason)
+            emit(PackOperationProgress.Failed(countResult.reason))
             return@flow
         }
 
         val partRanges = PackConversionPlanner.computePartRanges(setDto.stickers.size)
-        val partIndex = pack.importPartIndex.coerceIn(partRanges.indices)
-        val stickerDtos = setDto.stickers.slice(partRanges[partIndex])
-        val titleSuffix = if (partRanges.size > 1) " (Part ${partIndex + 1}/${partRanges.size})" else ""
+        val currentRows = stickerDao.getStickersOnce(packId)
+        val currentIdentities = currentRows.flatMap { row ->
+            listOfNotNull(row.remoteStableId, row.remoteId)
+        }.toSet()
+        val partIndex = pack.importPartIndex
+        // Releases before STATIC_SPLIT_PART_INDEX left the static half at its
+        // ordinary part number. Pair it with the exact animated title shape
+        // the old splitter created; unlike fresh part boundaries, that stored
+        // relationship remains stable when Telegram inserts/reorders items.
+        val legacyAnimatedTitle = pack.title + appContext.getString(R.string.pack_animated_suffix)
+        val legacyAnimatedSibling = if (partIndex >= 0) {
+            packDao.getImportedPacksForSet(setName).firstOrNull { sibling ->
+                sibling.id != packId &&
+                    sibling.importPartIndex == ANIMATED_SPLIT_PART_INDEX &&
+                    sibling.title == legacyAnimatedTitle
+            }
+        } else {
+            null
+        }
+        val isLegacyStaticSplit = legacyAnimatedSibling != null
+        val sourcePartSuffix = pack.sourcePartIndex
+            ?.takeIf { it in partRanges.indices && partRanges.size > 1 }
+            ?.let { " (Part ${it + 1}/${partRanges.size})" }
+            .orEmpty()
+        val historicalSelectionSuffix = SourceSignature.parse(pack.sourceSignature)
+            ?.title
+            ?.let(::sanitizeTitle)
+            ?.takeIf { baselineTitle -> pack.title.startsWith(baselineTitle) }
+            ?.let { baselineTitle -> pack.title.removePrefix(baselineTitle) }
+            .orEmpty()
+        val stickerDtos: List<StickerDto>
+        val titleSuffix: String
+        when {
+            partIndex == CUSTOM_PART_INDEX ||
+                partIndex == ANIMATED_SPLIT_PART_INDEX ||
+                partIndex == STATIC_SPLIT_PART_INDEX ||
+                isLegacyStaticSplit -> {
+                // A custom/split pack is a selected subset, not Telegram part
+                // zero. Preserve that exact identity on re-import rather than
+                // silently replacing it with an unrelated first 30 stickers.
+                stickerDtos = setDto.stickers.filter { dto ->
+                    SourceSignature.matchesAnyStoredIdentity(dto, currentIdentities)
+                }
+                if (stickerDtos.size < SizeBudget.MIN_STICKERS) {
+                    emit(
+                        PackOperationProgress.Failed(
+                            appContext.getString(R.string.err_reimport_selection_missing),
+                        ),
+                    )
+                    return@flow
+                }
+                titleSuffix = if (partIndex == CUSTOM_PART_INDEX) {
+                    " (Custom)"
+                } else if (partIndex == ANIMATED_SPLIT_PART_INDEX) {
+                    if (pack.sourcePartIndex != null) {
+                        sourcePartSuffix + appContext.getString(R.string.pack_animated_suffix)
+                    } else {
+                        historicalSelectionSuffix.ifEmpty {
+                            appContext.getString(R.string.pack_animated_suffix)
+                        }
+                    }
+                } else {
+                    if (pack.sourcePartIndex != null) sourcePartSuffix else historicalSelectionSuffix
+                }
+            }
+            else -> {
+                if (partIndex !in partRanges.indices) {
+                    emit(PackOperationProgress.Failed(appContext.getString(R.string.err_invalid_part)))
+                    return@flow
+                }
+                stickerDtos = setDto.stickers.slice(partRanges[partIndex])
+                titleSuffix = if (partRanges.size > 1) {
+                    " (Part ${partIndex + 1}/${partRanges.size})"
+                } else {
+                    ""
+                }
+            }
+        }
 
-        convertAndPersistImportedPack(packId, backendConfig, input, shortNameInput, setDto, stickerDtos, titleSuffix, partIndex, bias, onMixedPack)
+        reimportAndReplaceImportedPack(
+            startingPack = pack,
+            backendConfig = backendConfig,
+            input = input,
+            shortNameInput = shortNameInput,
+            setDto = setDto,
+            stickerDtos = stickerDtos,
+            titleSuffix = titleSuffix,
+            bias = bias,
+            committedImportPartIndex = if (isLegacyStaticSplit) {
+                STATIC_SPLIT_PART_INDEX
+            } else {
+                pack.importPartIndex
+            },
+            committedSourcePartIndex = if (isLegacyStaticSplit) partIndex else pack.sourcePartIndex,
+            legacyAnimatedSiblingId = legacyAnimatedSibling?.id,
+        )
     }.catch { e ->
         val message = e.message ?: appContext.getString(R.string.err_update_failed)
-        finalizePackFailed(packId, message)
         emit(PackOperationProgress.Failed(message))
+    }.flowOn(Dispatchers.IO)
+
+    /** Downloads and converts a Telegram snapshot beside the working pack,
+     * then swaps rows and versioned asset paths in one transaction. The
+     * existing Ready pack remains served until every replacement succeeds. */
+    private suspend fun FlowCollector<PackOperationProgress>.reimportAndReplaceImportedPack(
+        startingPack: PackEntity,
+        backendConfig: TelegramBackendConfig,
+        input: String,
+        shortNameInput: String,
+        setDto: StickerSetDto,
+        stickerDtos: List<StickerDto>,
+        titleSuffix: String,
+        bias: ConversionBias,
+        committedImportPartIndex: Int,
+        committedSourcePartIndex: Int?,
+        legacyAnimatedSiblingId: String?,
+    ) {
+        val packId = startingPack.id
+        val backend = TelegramBackendProvider.resolve(backendConfig)
+        val existingRows = stickerDao.getStickersOnce(packId)
+        val packDir = File(appContext.filesDir, "packs/$packId")
+        val token = "${BuildConfig.VERSION_CODE}-${UUID.randomUUID()}"
+        val originalDir = File(packDir, "original")
+        val convertedDir = File(packDir, "converted")
+        val stagedFiles = mutableListOf<File>()
+        val downloaded = mutableListOf<DownloadedRemoteSticker>()
+        val converted = mutableListOf<StagedRemoteReimportSticker>()
+        var committed = false
+
+        try {
+            for ((index, dto) in stickerDtos.withIndex()) {
+                emit(
+                    PackOperationProgress.Progress(
+                        appContext.getString(R.string.stage_downloading_sticker, index + 1, stickerDtos.size),
+                        0.05f + 0.38f * (index + 1) / stickerDtos.size,
+                    ),
+                )
+                val original = File(originalDir, "reimport-$token-$index.bin")
+                stagedFiles += original
+                val contentType = downloadSticker(
+                    backend = backend,
+                    setName = setDto.name,
+                    stickerId = dto.id,
+                    output = original,
+                    contentTypeHint = dto.knownContentType,
+                )
+                if (contentType == null) {
+                    throw ReconversionFailure(appContext.getString(R.string.err_download_failed))
+                }
+                val type = StickerTypeClassifier.classify(contentType).let { classified ->
+                    if (classified == StickerMediaType.Unknown) {
+                        StickerTypeClassifier.reclassifyUnknown(original)
+                    } else {
+                        classified
+                    }
+                }
+                downloaded += DownloadedRemoteSticker(dto, original, type, contentType)
+            }
+
+            val slowFormat = downloaded.any {
+                it.type == StickerMediaType.Video || it.type == StickerMediaType.AnimatedLottie
+            }
+            for ((index, item) in downloaded.withIndex()) {
+                emit(
+                    PackOperationProgress.Progress(
+                        appContext.getString(R.string.stage_converting_sticker, index + 1, downloaded.size),
+                        0.43f + 0.44f * (index + 1) / downloaded.size,
+                        slowFormat = slowFormat,
+                    ),
+                )
+                val output = File(convertedDir, "reimport-$token-$index.webp")
+                stagedFiles += output
+                when (
+                    val result = StickerConversionPipeline.convertForWhatsapp(
+                        context = appContext,
+                        input = item.original,
+                        output = output,
+                        stickerType = item.type,
+                        bias = bias,
+                    )
+                ) {
+                    is StickerConvertResult.Success -> converted += StagedRemoteReimportSticker(
+                        downloaded = item,
+                        output = output,
+                        warning = result.warning,
+                        isAnimated = result.isAnimated,
+                    )
+                    is StickerConvertResult.Failed -> throw ReconversionFailure(result.reason)
+                }
+            }
+
+            if (converted.size < SizeBudget.MIN_STICKERS) {
+                throw ReconversionFailure(
+                    appContext.getString(
+                        R.string.err_reimport_too_few_converted,
+                        converted.size,
+                        SizeBudget.MIN_STICKERS,
+                    ),
+                )
+            }
+
+            val animatedCount = converted.count { it.isAnimated }
+            val staticCount = converted.size - animatedCount
+            // A re-import replaces one existing pack atomically; it cannot
+            // safely pause after staging and create a second identity like a
+            // first-time import can. Preserve the established majority
+            // policy here and surface the same flattening warning.
+            val packIsAnimated = animatedCount >= staticCount && animatedCount > 0
+            val reimportWarnings = mutableListOf<String>()
+            if (animatedCount > 0 && staticCount > 0) {
+                val minority = if (packIsAnimated) staticCount else animatedCount
+                reimportWarnings += appContext.resources.getQuantityString(
+                    R.plurals.warn_mixed_pack_flattened,
+                    minority,
+                    minority,
+                )
+            }
+            for (index in converted.indices) {
+                val item = converted[index]
+                if (item.isAnimated == packIsAnimated) continue
+                when (
+                    val result = StickerConversionPipeline.convertForWhatsappForced(
+                        context = appContext,
+                        input = item.downloaded.original,
+                        output = item.output,
+                        stickerType = item.downloaded.type,
+                        forceAnimated = packIsAnimated,
+                        bias = bias,
+                    )
+                ) {
+                    is StickerConvertResult.Failed -> throw ReconversionFailure(result.reason)
+                    is StickerConvertResult.Success -> converted[index] = item.copy(
+                        warning = result.warning ?: item.warning,
+                        isAnimated = packIsAnimated,
+                    )
+                }
+            }
+
+            emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_building_tray_icon), 0.92f))
+            val previousTrayRow = existingRows
+                .firstOrNull { it.rowId == startingPack.trayStickerRowId }
+            val previousTrayIdentities = listOfNotNull(
+                previousTrayRow?.remoteStableId,
+                previousTrayRow?.remoteId,
+            ).toSet()
+            val traySource = converted.firstOrNull {
+                SourceSignature.matchesAnyStoredIdentity(
+                    it.downloaded.dto,
+                    previousTrayIdentities,
+                )
+            } ?: converted.first()
+            val stagedTray = File(packDir, "tray-reimport-$token.webp")
+            stagedFiles += stagedTray
+            when (
+                val trayResult = StickerConversionPipeline.buildTrayIcon(
+                    input = traySource.downloaded.original,
+                    stickerType = traySource.downloaded.type,
+                    output = stagedTray,
+                )
+            ) {
+                is StickerConvertResult.Failed -> throw ReconversionFailure(trayResult.reason)
+                is StickerConvertResult.Success -> Unit
+            }
+
+            val swapped = withContext(NonCancellable) {
+                val didSwap = database.withTransaction {
+                    val currentPack = packDao.getPack(packId) ?: return@withTransaction false
+                    if (
+                        currentPack.origin != PackOrigin.Imported.name ||
+                        currentPack.status != PackStatus.Ready.name ||
+                        currentPack.imageDataVersion != startingPack.imageDataVersion
+                    ) {
+                        return@withTransaction false
+                    }
+                    val currentRows = stickerDao.getStickersOnce(packId)
+                    val expectedAssets = existingRows.associate { row ->
+                        row.rowId to (row.originalFilePath to row.convertedWhatsappPath)
+                    }
+                    val currentAssets = currentRows.associate { row ->
+                        row.rowId to (row.originalFilePath to row.convertedWhatsappPath)
+                    }
+                    if (currentAssets != expectedAssets) return@withTransaction false
+
+                    stickerDao.deleteForPack(packId)
+                    val newRowIds = mutableMapOf<String, Long>()
+                    for ((position, item) in converted.withIndex()) {
+                        val downloadedItem = item.downloaded
+                        val rowId = stickerDao.upsert(
+                            StickerEntity(
+                                packId = packId,
+                                remoteId = downloadedItem.dto.id,
+                                remoteStableId = downloadedItem.dto.stableId,
+                                position = position,
+                                emojis = downloadedItem.dto.emoji.orEmpty(),
+                                sniffedContentType = downloadedItem.contentType,
+                                sourceLocalUri = null,
+                                isVideo = downloadedItem.type == StickerMediaType.Video,
+                                originalFilePath = downloadedItem.original.absolutePath,
+                                convertedWhatsappPath = item.output.absolutePath,
+                                convertedTelegramPath = null,
+                                conversionStatus = if (item.warning == null) "Done" else "DoneWithWarning",
+                                conversionError = item.warning,
+                            ),
+                        )
+                        newRowIds[SourceSignature.identityOf(downloadedItem.dto)] = rowId
+                    }
+                    val warnings = (reimportWarnings + converted.mapNotNull { it.warning })
+                        .distinct()
+                        .toMutableList()
+                    val warning = warnings.joinToString(" ").ifEmpty { null }
+                    legacyAnimatedSiblingId?.let { siblingId ->
+                        val sibling = packDao.getPack(siblingId)
+                        if (
+                            sibling != null &&
+                            sibling.telegramSetName == currentPack.telegramSetName &&
+                            sibling.importPartIndex == ANIMATED_SPLIT_PART_INDEX
+                        ) {
+                            packDao.upsert(sibling.copy(sourcePartIndex = committedSourcePartIndex))
+                        }
+                    }
+                    packDao.upsert(
+                        currentPack.bumpRevision().copy(
+                            telegramSetName = setDto.name,
+                            pushShortName = null,
+                            sourceUrl = input,
+                            title = sanitizeTitle(setDto.title) + titleSuffix,
+                            publisher = "@$shortNameInput",
+                            stickerCount = converted.size,
+                            isAnimatedPack = packIsAnimated,
+                            status = PackStatus.Ready.name,
+                            errorMessage = null,
+                            warningMessage = warning,
+                            trayIconPath = stagedTray.absolutePath,
+                            trayStickerRowId = newRowIds[SourceSignature.identityOf(traySource.downloaded.dto)],
+                            sourceSignature = SourceSignature.compute(setDto),
+                            updateAvailable = false,
+                            importPartIndex = committedImportPartIndex,
+                            sourcePartIndex = committedSourcePartIndex,
+                            conversionBias = bias.name.takeIf { packIsAnimated },
+                            convertedAppVersionCode = BuildConfig.VERSION_CODE,
+                            convertedAppVersionName = BuildConfig.VERSION_NAME,
+                        ),
+                    )
+                    true
+                }
+                if (didSwap) committed = true
+                didSwap
+            }
+            if (!swapped) {
+                throw ReconversionFailure(appContext.getString(R.string.err_pack_changed_during_reconversion))
+            }
+            // Keep the previous versioned paths until the pack itself is
+            // deleted. A WhatsApp provider client can resolve a path just
+            // before this transaction and open it just after; immediate
+            // cleanup would turn that valid in-flight read into a missing
+            // frame/file. Unique names keep every new revision unambiguous.
+
+            emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
+            emit(PackOperationProgress.Complete(packId))
+        } finally {
+            if (!committed) stagedFiles.forEach { it.delete() }
+        }
+    }
+
+    /** Rebuilds every currently served WhatsApp sticker from the durable
+     * originals already stored for an imported pack.
+     *
+     * New outputs use unique names and are not referenced until the final
+     * Room transaction. A decoder/encoder failure, cancellation, or racing
+     * edit therefore leaves the existing Ready pack and its revision fully
+     * intact. The caller performs the forced Telegram freshness check first;
+     * this method deliberately does no network I/O. */
+    fun reconvertImportedPack(
+        packId: String,
+        bias: ConversionBias = ConversionBias.Auto,
+    ): Flow<PackOperationProgress> = flow {
+        val startingPack = packDao.getPack(packId)
+        if (
+            startingPack == null ||
+            startingPack.origin != PackOrigin.Imported.name ||
+            startingPack.status != PackStatus.Ready.name
+        ) {
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_ready_for_reconversion)))
+            return@flow
+        }
+
+        val startingRows = stickerDao.getStickersOnce(packId)
+            .filter { it.convertedWhatsappPath != null }
+            .sortedBy { it.position }
+        if (startingRows.isEmpty()) {
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_no_stickers_converted)))
+            return@flow
+        }
+
+        val packDir = File(appContext.filesDir, "packs/$packId")
+        // Historical animated split packs kept their durable originals in
+        // the sibling source pack. Reading any app-owned pack original is
+        // safe; this method only reads those cross-pack files.
+        val packsRoot = runCatching { File(appContext.filesDir, "packs").canonicalFile }.getOrNull()
+        val ownedPrefix = packsRoot?.path?.plus(File.separator)
+        if (ownedPrefix == null) {
+            emit(PackOperationProgress.Failed(appContext.getString(R.string.err_pack_not_ready_for_reconversion)))
+            return@flow
+        }
+
+        val token = "${BuildConfig.VERSION_CODE}-${UUID.randomUUID()}"
+        val convertedDir = File(packDir, "converted")
+        val staged = mutableListOf<StagedReconversionSticker>()
+        val stagedFiles = mutableListOf<File>()
+        var committed = false
+
+        try {
+            val slowFormat = startingRows.any {
+                val type = it.mediaType()
+                type == StickerMediaType.Video || type == StickerMediaType.AnimatedLottie
+            }
+            for ((index, row) in startingRows.withIndex()) {
+                val original = row.originalFilePath
+                    ?.let(::File)
+                    ?.let { runCatching { it.canonicalFile }.getOrNull() }
+                    ?.takeIf { it.path.startsWith(ownedPrefix) && it.isFile }
+                if (original == null) {
+                    throw ReconversionFailure(appContext.getString(R.string.err_reconversion_source_missing))
+                }
+
+                emit(
+                    PackOperationProgress.Progress(
+                        appContext.getString(
+                            R.string.stage_converting_sticker,
+                            index + 1,
+                            startingRows.size,
+                        ),
+                        0.05f + 0.82f * (index + 1) / startingRows.size,
+                        slowFormat = slowFormat,
+                    ),
+                )
+                val output = File(convertedDir, "reconvert-$token-${row.rowId}.webp")
+                stagedFiles += output
+                when (
+                    val result = StickerConversionPipeline.convertForWhatsappForced(
+                        context = appContext,
+                        input = original,
+                        output = output,
+                        stickerType = row.mediaType(),
+                        forceAnimated = startingPack.isAnimatedPack,
+                        bias = bias,
+                        trimStartMs = row.trimStartMs,
+                        trimDurationMs = row.trimDurationMs,
+                        crop = row.mediaCrop(),
+                    )
+                ) {
+                    is StickerConvertResult.Success -> staged += StagedReconversionSticker(
+                        source = row,
+                        output = output,
+                        warning = result.warning,
+                    )
+                    is StickerConvertResult.Failed -> throw ReconversionFailure(result.reason)
+                }
+            }
+
+            emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_building_tray_icon), 0.92f))
+            val traySource = staged.firstOrNull { it.source.rowId == startingPack.trayStickerRowId }
+                ?: staged.first()
+            val stagedTray = File(packDir, "tray-reconvert-$token.webp")
+            stagedFiles += stagedTray
+            when (
+                val trayResult = StickerConversionPipeline.buildTrayIcon(
+                    input = File(traySource.source.originalFilePath!!),
+                    stickerType = traySource.source.mediaType(),
+                    output = stagedTray,
+                    trimStartMs = traySource.source.trimStartMs,
+                    trimDurationMs = traySource.source.trimDurationMs,
+                    crop = traySource.source.mediaCrop(),
+                )
+            ) {
+                is StickerConvertResult.Failed -> throw ReconversionFailure(trayResult.reason)
+                is StickerConvertResult.Success -> Unit
+            }
+
+            val swapped = withContext(NonCancellable) {
+                val didSwap = database.withTransaction {
+                    val currentPack = packDao.getPack(packId) ?: return@withTransaction false
+                    if (
+                        currentPack.status != PackStatus.Ready.name ||
+                        currentPack.origin != PackOrigin.Imported.name ||
+                        currentPack.imageDataVersion != startingPack.imageDataVersion
+                    ) {
+                        return@withTransaction false
+                    }
+                    val currentById = stickerDao.getStickersOnce(packId).associateBy { it.rowId }
+                    if (staged.any { candidate -> currentById[candidate.source.rowId] != candidate.source }) {
+                        return@withTransaction false
+                    }
+
+                    stickerDao.upsertAll(
+                        staged.map { candidate ->
+                            candidate.source.copy(
+                                convertedWhatsappPath = candidate.output.absolutePath,
+                                conversionStatus = if (candidate.warning == null) "Done" else "DoneWithWarning",
+                                conversionError = candidate.warning,
+                            )
+                        },
+                    )
+                    packDao.upsert(
+                        currentPack.bumpRevision().copy(
+                            status = PackStatus.Ready.name,
+                            errorMessage = null,
+                            trayIconPath = stagedTray.absolutePath,
+                            trayStickerRowId = traySource.source.rowId,
+                            stickerCount = staged.size,
+                            conversionBias = bias.name.takeIf { currentPack.isAnimatedPack },
+                            convertedAppVersionCode = BuildConfig.VERSION_CODE,
+                            convertedAppVersionName = BuildConfig.VERSION_NAME,
+                        ),
+                    )
+                    true
+                }
+                if (didSwap) committed = true
+                didSwap
+            }
+            if (!swapped) {
+                throw ReconversionFailure(appContext.getString(R.string.err_pack_changed_during_reconversion))
+            }
+            // From this point the provider resolves only the new unique file
+            // names. Mark committed before cleanup so cancellation cannot
+            // remove assets that Room already references.
+            // See the re-import path above: old revision files stay readable
+            // for provider opens already in flight. Recursive pack deletion
+            // remains the eventual cleanup boundary.
+
+            emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
+            emit(PackOperationProgress.Complete(packId))
+        } finally {
+            if (!committed) stagedFiles.forEach { it.delete() }
+        }
+    }.catch { error ->
+        if (error is CancellationException) throw error
+        emit(
+            PackOperationProgress.Failed(
+                error.message ?: appContext.getString(R.string.err_reconversion_failed),
+            ),
+        )
     }.flowOn(Dispatchers.IO)
 
     /** Re-fetches every eligible imported pack's Telegram source and flags
@@ -854,8 +1397,15 @@ class StickerPackRepository(private val appContext: Context) {
             }
             val dto = (result as? ApiResult.Success)?.value ?: continue
             val freshSignature = SourceSignature.compute(dto)
-            if (pack.sourceSignature != null && freshSignature != pack.sourceSignature) {
-                packDao.setUpdateAvailable(pack.id, true)
+            if (SourceSignature.matches(dto, pack.sourceSignature)) {
+                markSourceCurrentIfUnchanged(pack, dto, freshSignature)
+            } else {
+                packDao.setUpdateAvailableIfUnchanged(
+                    pack.id,
+                    true,
+                    pack.sourceSignature,
+                    pack.imageDataVersion,
+                )
             }
         }
     }
@@ -889,12 +1439,51 @@ class StickerPackRepository(private val appContext: Context) {
             is ApiResult.Success -> result.value
         }
         val freshSignature = SourceSignature.compute(dto)
-        return if (pack.sourceSignature != null && freshSignature != pack.sourceSignature) {
-            packDao.setUpdateAvailable(packId, true)
+        val changed = !SourceSignature.matches(dto, pack.sourceSignature)
+        val recorded = if (changed) {
+            packDao.setUpdateAvailableIfUnchanged(
+                packId,
+                true,
+                pack.sourceSignature,
+                pack.imageDataVersion,
+            ) == 1
+        } else {
+            markSourceCurrentIfUnchanged(pack, dto, freshSignature)
+        }
+        if (!recorded) {
+            return ForceRefreshResult.Failed(
+                appContext.getString(R.string.err_pack_changed_during_refresh),
+            )
+        }
+        return if (changed) {
             ForceRefreshResult.UpdateAvailable
         } else {
             ForceRefreshResult.UpToDate
         }
+    }
+
+    /** Commits a freshness result only if the pack still matches the snapshot
+     * that initiated the network call. When locator-based legacy signatures
+     * match, also teach historical rows their stable Telegram identities so
+     * later `file_id` rotations cannot lose custom/split selections. */
+    internal suspend fun markSourceCurrentIfUnchanged(
+        snapshot: PackEntity,
+        dto: StickerSetDto,
+        freshSignature: String,
+    ): Boolean = database.withTransaction {
+        val updated = packDao.markSourceCurrentIfUnchanged(
+            snapshot.id,
+            freshSignature,
+            snapshot.sourceSignature,
+            snapshot.imageDataVersion,
+        )
+        if (updated != 1) return@withTransaction false
+        dto.stickers.forEach { sticker ->
+            sticker.stableId?.let { stableId ->
+                stickerDao.setRemoteStableId(snapshot.id, sticker.id, stableId)
+            }
+        }
+        true
     }
 
     /** Imports an arbitrary, hand-picked subset of the source pack's
@@ -1020,10 +1609,19 @@ class StickerPackRepository(private val appContext: Context) {
         packId: String,
         backendConfig: TelegramBackendConfig,
         input: String,
+        force: Boolean = false,
+        preserveReadyPackOnFailure: Boolean = false,
     ): Pair<String, StickerSetDto>? {
+        suspend fun reportFailure(message: String) {
+            if (preserveReadyPackOnFailure) {
+                emit(PackOperationProgress.Failed(message))
+            } else {
+                failImport(packId, message)
+            }
+        }
         val shortNameInput = extractShortName(input)
         if (shortNameInput.isBlank()) {
-            failImport(packId, appContext.getString(R.string.err_enter_pack_link))
+            reportFailure(appContext.getString(R.string.err_enter_pack_link))
             return null
         }
 
@@ -1034,14 +1632,14 @@ class StickerPackRepository(private val appContext: Context) {
                 onRetry = { attempt, max ->
                     emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_retrying, attempt, max), 0.05f))
                 },
-            ) { backend.getSet(shortNameInput) }
+            ) { backend.getSet(shortNameInput, force = force) }
         } catch (e: Exception) {
-            failImport(packId, describeNetworkError(e))
+            reportFailure(describeNetworkError(e))
             return null
         }
         val setDto = when (result) {
             is ApiResult.Failure -> {
-                failImport(packId, result.error.userMessage)
+                reportFailure(result.error.userMessage)
                 return null
             }
             is ApiResult.Success -> result.value
@@ -1102,10 +1700,13 @@ class StickerPackRepository(private val appContext: Context) {
                 updateAvailable = false,
                 updateCheckEnabled = existing?.updateCheckEnabled ?: true,
                 importPartIndex = partIndex,
+                sourcePartIndex = partIndex.takeIf { it >= 0 },
                 // Carried over rather than reset: this row is being rebuilt
                 // under an id WhatsApp may already have cached. finalizePackReady
                 // moves it once the new content is actually on disk.
                 imageDataVersion = existing?.imageDataVersion ?: 1,
+                convertedAppVersionCode = existing?.convertedAppVersionCode,
+                convertedAppVersionName = existing?.convertedAppVersionName,
             ),
         )
         stickerDao.upsertAll(
@@ -1113,6 +1714,7 @@ class StickerPackRepository(private val appContext: Context) {
                 StickerEntity(
                     packId = packId,
                     remoteId = dto.id,
+                    remoteStableId = dto.stableId,
                     position = index,
                     emojis = dto.emoji ?: "",
                     sniffedContentType = null,
@@ -1266,11 +1868,21 @@ class StickerPackRepository(private val appContext: Context) {
             val canSplit = animatedCount >= SizeBudget.MIN_STICKERS &&
                 staticCount >= SizeBudget.MIN_STICKERS
             if (canSplit && onMixedPack(animatedCount, staticCount)) {
-                splitPackId = splitAnimatedIntoOwnPack(packId, setDto, convertedForFixup, bias)
-                // Whatever is left in this pack is now one kind throughout.
-                packIsAnimated = false
-                convertedCount -= animatedCount
-                convertedForFixup.removeAll { it.isAnimated }
+                val createdSplit = splitAnimatedIntoOwnPack(packId, convertedForFixup, bias)
+                if (createdSplit != null) {
+                    splitPackId = createdSplit
+                    // Whatever is left in this pack is now one kind throughout.
+                    packIsAnimated = false
+                    convertedCount -= animatedCount
+                    convertedForFixup.removeAll { it.isAnimated }
+                } else {
+                    val minority = if (packIsAnimated) staticCount else animatedCount
+                    warnings += appContext.resources.getQuantityString(
+                        R.plurals.warn_mixed_pack_flattened,
+                        minority,
+                        minority,
+                    )
+                }
             } else {
                 val minority = if (packIsAnimated) staticCount else animatedCount
                 warnings += appContext.resources.getQuantityString(
@@ -1310,6 +1922,8 @@ class StickerPackRepository(private val appContext: Context) {
             bias = bias,
             stickerCount = convertedCount,
             trayStickerRowId = trayStickerRowId,
+            convertedAppVersionCode = BuildConfig.VERSION_CODE,
+            convertedAppVersionName = BuildConfig.VERSION_NAME,
         )
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.pack_status_ready), 1f))
@@ -1923,19 +2537,19 @@ class StickerPackRepository(private val appContext: Context) {
             is ApiResult.Success -> result.value
         }
 
-        if (SourceSignature.compute(dto) == pack.sourceSignature) return PackUpdateDiffResult.UpToDate
+        if (SourceSignature.matches(dto, pack.sourceSignature)) return PackUpdateDiffResult.UpToDate
         val before = SourceSignature.parse(pack.sourceSignature) ?: return PackUpdateDiffResult.NoBaseline
 
         val beforeById = before.stickers.associateBy { it.id }
-        val afterById = dto.stickers.associate { it.id to it.emoji.orEmpty() }
+        val afterById = dto.stickers.associate { SourceSignature.identityOf(it) to it.emoji.orEmpty() }
 
         return PackUpdateDiffResult.Loaded(
             PackUpdateDiff(
                 titleBefore = before.title,
                 titleAfter = dto.title,
                 added = dto.stickers
-                    .filter { it.id !in beforeById }
-                    .map { StickerEntry(it.id, it.emoji.orEmpty()) },
+                    .filter { SourceSignature.identityOf(it) !in beforeById }
+                    .map { StickerEntry(SourceSignature.identityOf(it), it.emoji.orEmpty()) },
                 removed = before.stickers
                     .filter { it.id !in afterById }
                     .map { StickerEntry(it.id, it.emoji) },
@@ -1949,20 +2563,16 @@ class StickerPackRepository(private val appContext: Context) {
         )
     }
 
-    /** Moves the animated stickers of a mixed pack into a pack of their own,
-     * leaving the static ones where they are, so neither kind has to be
-     * destroyed to satisfy WhatsApp's all-or-nothing rule.
+    /** Copies the animated stickers of a mixed pack into a pack of their own,
+     * leaving the static ones in the source pack. Both halves receive subset
+     * sentinels so a later Telegram re-import preserves their exact identities
+     * instead of expanding either half back to the full source slice.
      *
-     * The new pack takes [ANIMATED_SPLIT_PART_INDEX] rather than the part
-     * index it came from. Duplicate detection keys on set name plus part
-     * index, and two packs claiming the same pair would make re-importing
-     * either one ambiguous -- the same reason a hand-picked import uses
-     * [CUSTOM_PART_INDEX]. Files move rather than being reconverted: they are
-     * already correct, and a rename inside the same directory tree is free
-     * next to decoding a video sticker again. */
+     * Files are staged by copy and the two row sets change in one transaction.
+     * This also puts originals beneath the split pack, which lets future app
+     * versions rebuild it even after the source half has been deleted. */
     private suspend fun splitAnimatedIntoOwnPack(
         packId: String,
-        setDto: StickerSetDto,
         converted: List<WhatsappConvertedSticker>,
         bias: ConversionBias,
     ): String? {
@@ -1970,69 +2580,125 @@ class StickerPackRepository(private val appContext: Context) {
         val animated = converted.filter { it.isAnimated }
         if (animated.isEmpty()) return null
 
+        val animatedOutputPaths = animated.map { it.output.absolutePath }.toSet()
+        val rows = stickerDao.getStickersOnce(packId)
+            .filter { it.convertedWhatsappPath in animatedOutputPaths }
+            .sortedBy { it.position }
+        if (rows.size != animated.size) return null
+
         val newPackId = UUID.randomUUID().toString()
         val newDir = File(appContext.filesDir, "packs/$newPackId")
-        File(newDir, "converted").mkdirs()
-        File(newDir, "original").mkdirs()
+        val newOriginalDir = File(newDir, "original")
+        val newConvertedDir = File(newDir, "converted")
+        val originalPaths = mutableMapOf<Long, String>()
+        val convertedPaths = mutableMapOf<Long, String>()
+        var committed = false
 
-        val movedPaths = mutableMapOf<String, String>()
-        for (sticker in animated) {
-            val target = File(newDir, "converted/${sticker.output.name}")
-            if (sticker.output.renameTo(target)) movedPaths[sticker.output.absolutePath] = target.absolutePath
-        }
-
-        val now = System.currentTimeMillis()
-        val rows = stickerDao.getStickersOnce(packId)
-            .filter { it.convertedWhatsappPath in movedPaths }
-        packDao.upsert(
-            source.copy(
-                id = newPackId,
-                title = source.title + appContext.getString(R.string.pack_animated_suffix),
-                stickerCount = rows.size,
-                isAnimatedPack = true,
-                status = PackStatus.Ready.name,
-                trayIconPath = null,
-                trayStickerRowId = null,
-                whatsappAdded = false,
-                whatsappSyncedDataVersion = null,
-                telegramSyncedDataVersion = null,
-                createdAtMillis = now,
-                updatedAtMillis = now,
-                importPartIndex = ANIMATED_SPLIT_PART_INDEX,
-                conversionBias = bias.name,
-            ),
-        )
-        stickerDao.upsertAll(
-            rows.mapIndexed { index, row ->
-                row.copy(
-                    rowId = 0,
-                    packId = newPackId,
-                    position = index,
-                    convertedWhatsappPath = movedPaths[row.convertedWhatsappPath],
+        try {
+            for (row in rows) {
+                val original = row.originalFilePath?.let(::File)?.takeIf { it.isFile }
+                    ?: return null
+                val convertedFile = row.convertedWhatsappPath?.let(::File)?.takeIf { it.isFile }
+                    ?: return null
+                val originalTarget = File(
+                    newOriginalDir,
+                    "${row.rowId}-${sanitizeFileName(original.name)}",
                 )
-            },
-        )
-        rows.forEach { stickerDao.deleteByRowId(it.rowId) }
-
-        val first = rows.firstOrNull()?.convertedWhatsappPath?.let { movedPaths[it] }?.let(::File)
-        val trayFile = File(newDir, "tray.webp")
-        val trayReady = first != null &&
-            StickerConversionPipeline.buildTrayIcon(first, StickerMediaType.Static, trayFile) is
-                StickerConvertResult.Success
-        if (trayReady) {
-            val firstRowId = stickerDao.getStickersOnce(newPackId)
-                .minByOrNull { it.position }
-                ?.rowId
-            updatePack(newPackId) {
-                it.copy(
-                    trayIconPath = trayFile.absolutePath,
-                    trayStickerRowId = firstRowId,
-                )
+                val convertedTarget = File(newConvertedDir, "${row.rowId}.webp")
+                originalTarget.parentFile?.mkdirs()
+                convertedTarget.parentFile?.mkdirs()
+                original.copyTo(originalTarget, overwrite = false)
+                convertedFile.copyTo(convertedTarget, overwrite = false)
+                originalPaths[row.rowId] = originalTarget.absolutePath
+                convertedPaths[row.rowId] = convertedTarget.absolutePath
             }
-        }
 
-        updatePack(packId) { it.copy(stickerCount = it.stickerCount - rows.size) }
-        return newPackId
+            val firstConverted = rows.firstOrNull()?.rowId?.let(convertedPaths::get)?.let(::File)
+            val trayFile = File(newDir, "tray.webp")
+            val trayReady = firstConverted != null &&
+                StickerConversionPipeline.buildTrayIcon(
+                    firstConverted,
+                    StickerMediaType.Static,
+                    trayFile,
+                ) is StickerConvertResult.Success
+            val now = System.currentTimeMillis()
+
+            val splitCreated = withContext(NonCancellable) {
+                val didCreate = database.withTransaction {
+                    val currentSource = packDao.getPack(packId) ?: return@withTransaction false
+                    if (currentSource.imageDataVersion != source.imageDataVersion) {
+                        return@withTransaction false
+                    }
+                    val currentRows = stickerDao.getStickersOnce(packId).associateBy { it.rowId }
+                    if (rows.any { currentRows[it.rowId] != it }) return@withTransaction false
+
+                    val splitPack = source.copy(
+                        id = newPackId,
+                        title = source.title + appContext.getString(R.string.pack_animated_suffix),
+                        stickerCount = rows.size,
+                        isAnimatedPack = true,
+                        status = PackStatus.Ready.name,
+                        trayIconPath = trayFile.absolutePath.takeIf { trayReady },
+                        trayStickerRowId = null,
+                        whatsappAdded = false,
+                        whatsappSyncedDataVersion = null,
+                        telegramSyncedDataVersion = null,
+                        createdAtMillis = now,
+                        updatedAtMillis = now,
+                        importPartIndex = ANIMATED_SPLIT_PART_INDEX,
+                        sourcePartIndex = source.sourcePartIndex
+                            ?: source.importPartIndex.takeIf { it >= 0 },
+                        conversionBias = bias.name,
+                        convertedAppVersionCode = BuildConfig.VERSION_CODE,
+                        convertedAppVersionName = BuildConfig.VERSION_NAME,
+                    )
+                    packDao.upsert(splitPack)
+                    var firstRowId: Long? = null
+                    rows.forEachIndexed { index, row ->
+                        val newRowId = stickerDao.upsert(
+                            row.copy(
+                                rowId = 0,
+                                packId = newPackId,
+                                position = index,
+                                originalFilePath = originalPaths[row.rowId],
+                                convertedWhatsappPath = convertedPaths[row.rowId],
+                            ),
+                        )
+                        if (firstRowId == null) firstRowId = newRowId
+                    }
+                    if (trayReady) {
+                        packDao.upsert(splitPack.copy(trayStickerRowId = firstRowId))
+                    }
+                    rows.forEach { stickerDao.deleteByRowId(it.rowId) }
+                    packDao.upsert(
+                        currentSource.copy(
+                            stickerCount = currentSource.stickerCount - rows.size,
+                            importPartIndex = STATIC_SPLIT_PART_INDEX,
+                            sourcePartIndex = currentSource.sourcePartIndex
+                                ?: currentSource.importPartIndex.takeIf { it >= 0 },
+                            updatedAtMillis = now,
+                        ),
+                    )
+                    true
+                }
+                if (didCreate) committed = true
+                didCreate
+            }
+            if (!splitCreated) return null
+
+            // The source pack is not provider-visible until its surrounding
+            // import finalizes, and the split rows already point at copies.
+            deleteOwnedPackFiles(
+                File(appContext.filesDir, "packs/$packId"),
+                rows.flatMap { listOfNotNull(it.originalFilePath, it.convertedWhatsappPath) },
+            )
+            return newPackId
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            return null
+        } finally {
+            if (!committed) deleteForkDirectory(File(appContext.filesDir, "packs"), newDir)
+        }
     }
 
     /** Marks anything left mid-flight as failed. Called at startup when no
@@ -2153,6 +2819,7 @@ class StickerPackRepository(private val appContext: Context) {
     private fun PackWithStickers.toUiModel(): StickerPack {
         val sortedStickers = stickers.sortedBy { it.position }
         val origin = PackOrigin.valueOf(pack.origin)
+        val status = PackStatus.valueOf(pack.status)
         val telegramPushedCount = sortedStickers.count { it.convertedTelegramPath != null }
         return StickerPack(
             id = pack.id,
@@ -2168,7 +2835,7 @@ class StickerPackRepository(private val appContext: Context) {
             isPinned = pack.isPinned,
             updatedLabel = formatUpdatedLabel(pack.updatedAtMillis),
             sourceUrl = pack.sourceUrl,
-            status = PackStatus.valueOf(pack.status),
+            status = status,
             errorMessage = pack.errorMessage,
             warningMessage = pack.warningMessage,
             trayIconPath = pack.trayIconPath,
@@ -2213,8 +2880,17 @@ class StickerPackRepository(private val appContext: Context) {
             updateAvailable = pack.updateAvailable,
             telegramSetName = if (pack.origin == PackOrigin.Imported.name) pack.telegramSetName else null,
             importPartIndex = pack.importPartIndex,
+            sourcePartIndex = pack.sourcePartIndex,
             conversionBias = pack.conversionBias
                 ?.let { stored -> ConversionBias.entries.firstOrNull { it.name == stored } },
+            convertedAppVersionCode = pack.convertedAppVersionCode,
+            convertedAppVersionName = pack.convertedAppVersionName,
+            needsReconversion = deriveNeedsReconversion(
+                origin = origin,
+                status = status,
+                convertedAppVersionCode = pack.convertedAppVersionCode,
+                currentAppVersionCode = BuildConfig.VERSION_CODE,
+            ),
             requiresLocalRemix = pack.origin == PackOrigin.Imported.name ||
                 pack.sourceUrl != null ||
                 pack.sourceSignature != null,
@@ -2274,6 +2950,28 @@ class StickerPackRepository(private val appContext: Context) {
         val trimDurationMs: Long = 0L,
         val crop: MediaCrop? = null,
     )
+
+    private data class StagedReconversionSticker(
+        val source: StickerEntity,
+        val output: File,
+        val warning: String?,
+    )
+
+    private data class DownloadedRemoteSticker(
+        val dto: StickerDto,
+        val original: File,
+        val type: StickerMediaType,
+        val contentType: String,
+    )
+
+    private data class StagedRemoteReimportSticker(
+        val downloaded: DownloadedRemoteSticker,
+        val output: File,
+        val warning: String?,
+        val isAnimated: Boolean,
+    )
+
+    private class ReconversionFailure(message: String) : Exception(message)
 
     private data class PackForkSource(
         val pack: PackEntity,
@@ -2453,6 +3151,11 @@ class StickerPackRepository(private val appContext: Context) {
          * keys on set name plus part index, can still tell the two halves
          * apart -- same reasoning as [CUSTOM_PART_INDEX]. */
         const val ANIMATED_SPLIT_PART_INDEX = -2
+
+        /** Exact static subset left behind after a mixed import is split.
+         * Without its own sentinel, update replay mistakes it for the source
+         * part and restores the animations that were intentionally moved. */
+        const val STATIC_SPLIT_PART_INDEX = -3
     }
 
     private fun describeNetworkError(e: Exception): String = when (e) {
@@ -2534,6 +3237,11 @@ class StickerPackRepository(private val appContext: Context) {
         /** The remote push succeeded for at least one sticker. Fold its final
          * revision acknowledgement into this same commit as any local bump. */
         acknowledgeTelegram: Boolean = false,
+        /** Supplied only by a successful full imported-pack conversion. A
+         * partial/local mutation must not claim that every asset was rebuilt
+         * by the current app. */
+        convertedAppVersionCode: Int? = null,
+        convertedAppVersionName: String? = null,
     ): Int? = database.withTransaction {
         val current = packDao.getPack(packId) ?: return@withTransaction null
         if (!canFinalizePublish(expectedRevision, current.imageDataVersion)) {
@@ -2553,6 +3261,10 @@ class StickerPackRepository(private val appContext: Context) {
                 // far the encoder may trade quality for frames, and a static
                 // sticker has no frames to trade.
                 conversionBias = bias?.name.takeIf { isAnimated },
+                convertedAppVersionCode = convertedAppVersionCode
+                    ?: current.convertedAppVersionCode,
+                convertedAppVersionName = convertedAppVersionName
+                    ?: current.convertedAppVersionName,
             )
         val committed = if (acknowledgeTelegram && updated.telegramSetName != null) {
             updated.copy(telegramSyncedDataVersion = updated.imageDataVersion)

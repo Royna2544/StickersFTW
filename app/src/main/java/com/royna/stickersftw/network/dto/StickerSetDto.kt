@@ -1,7 +1,13 @@
 package com.royna.stickersftw.network.dto
 
 data class StickerDto(
+    /** Download locator. Telegram may replace this while the underlying
+     * sticker remains unchanged, so update detection must use [stableId]
+     * when one is available. */
     val id: String,
+    /** Stable Telegram file identity (`file_unique_id`). Null for backends
+     * that do not expose one. This cannot be used to download the sticker. */
+    val stableId: String? = null,
     val width: Int,
     val height: Int,
     val size: Int,

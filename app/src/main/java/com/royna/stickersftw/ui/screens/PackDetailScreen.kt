@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -89,6 +90,8 @@ fun PackDetailScreen(
     onForceRefreshFromTelegram: (packId: String, onDone: (message: String) -> Unit) -> Unit = { _, _ -> },
     onViewAllStickers: (String) -> Unit = {},
     onAddStickers: (packId: String, items: List<PickedMediaItem>) -> Unit = { _, _ -> },
+    reconversionCheckInProgress: Boolean = false,
+    onReconvert: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     var showDeleteTelegramConfirm by remember { mutableStateOf(false) }
@@ -190,6 +193,27 @@ fun PackDetailScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             PackHeroCard(pack)
+
+            if (pack.needsReconversion) {
+                OutlinedButton(
+                    onClick = { onReconvert(pack.id) },
+                    enabled = !reconversionCheckInProgress,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    if (reconversionCheckInProgress) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(stringResource(R.string.reconversion_checking_telegram))
+                    } else {
+                        Icon(Icons.Rounded.Refresh, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text(stringResource(R.string.action_reconvert_pack))
+                    }
+                }
+            }
 
             Text(stringResource(R.string.pack_detail_preview), style = MaterialTheme.typography.titleLarge)
             if (pack.previewStickerPaths.isEmpty()) {
@@ -459,6 +483,23 @@ private fun PackHeroCard(pack: StickerPack) {
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
             )
+            if (pack.origin == PackOrigin.Imported) {
+                val convertedVersionName = pack.convertedAppVersionName
+                val convertedVersion: String = when {
+                    !convertedVersionName.isNullOrBlank() -> convertedVersionName
+                    pack.convertedAppVersionCode != null -> stringResource(
+                        R.string.pack_detail_converted_app_build,
+                        pack.convertedAppVersionCode,
+                    )
+                    else -> stringResource(R.string.pack_detail_converted_app_version_unknown)
+                }
+                Text(
+                    text = stringResource(R.string.pack_detail_converted_app_version, convertedVersion),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
             if (pack.errorMessage != null) {
                 Spacer(Modifier.height(8.dp))
                 Text(

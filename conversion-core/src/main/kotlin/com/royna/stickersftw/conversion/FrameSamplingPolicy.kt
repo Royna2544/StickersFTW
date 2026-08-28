@@ -53,23 +53,41 @@ object FrameSamplingPolicy {
             ?: fallbackMs.coerceAtLeast(1L)
     }
 
-    /** Timestamp for a duplicate final hold when decoder outputs at either
-     * edge are missing. Interior gaps already hold the preceding frame until
-     * the next timestamp; a missing tail needs an explicit marker, while a
-     * missing head needs the same duration restored after rebasing to zero. */
-    fun trailingHoldTimestampMs(
-        wantedTimestampsMs: List<Long>,
-        decodedTimestampsMs: List<Long>,
+    /** Playback duration represented by a complete sampled timeline. */
+    fun durationMs(timestampsMs: List<Long>, fallbackMs: Long = 100L): Long? {
+        val first = timestampsMs.firstOrNull() ?: return null
+        val last = timestampsMs.last()
+        return (last - first + estimateIntervalMs(timestampsMs, fallbackMs)).coerceAtLeast(1L)
+    }
+
+    /** Absolute final timestamp passed to an animation encoder.
+     *
+     * [durationHintMs] comes from the complete pre-decode/pre-decimation
+     * timeline. Holding the last retained frame to that fixed boundary keeps
+     * `[0, 99]` from turning a 132ms `0/33/66/99` animation into 198ms, and
+     * keeps later size-budget frame cuts from changing playback speed. */
+    fun endTimestampMs(
+        retainedTimestampsMs: List<Long>,
+        durationHintMs: Long?,
+        fallbackMs: Long = 100L,
     ): Long? {
-        // One real decoder output is a static result. Duplicating it here
-        // would make callers label it animated even though WebPAnimEncoder
-        // coalesces identical frames back into a still image.
-        if (decodedTimestampsMs.size < 2) return null
-        val wantedFirst = wantedTimestampsMs.firstOrNull() ?: return null
-        val wantedLast = wantedTimestampsMs.last()
-        val decodedFirst = decodedTimestampsMs.firstOrNull() ?: return null
-        val decodedLast = decodedTimestampsMs.last()
-        val intendedLast = wantedLast + (decodedFirst - wantedFirst).coerceAtLeast(0L)
-        return intendedLast.takeIf { it > decodedLast }
+        val first = retainedTimestampsMs.firstOrNull() ?: return null
+        val last = retainedTimestampsMs.last()
+        val hinted = durationHintMs?.takeIf { it > 0L }?.let { first + it }
+        return maxOf(last + 1L, hinted ?: last + estimateIntervalMs(retainedTimestampsMs, fallbackMs))
+    }
+
+    /** Roughly halves a frame list while retaining both visual endpoints.
+     * Dropping the final frame on every even-sized retry changes the pose held
+     * immediately before the loop returns to frame zero, which can introduce
+     * a conversion-only loop jump. */
+    fun halfFrameIndices(frameCount: Int): List<Int> {
+        if (frameCount <= 0) return emptyList()
+        if (frameCount <= 2) return List(frameCount) { it }
+        val retainedCount = (frameCount + 1) / 2
+        val lastIndex = frameCount - 1
+        return List(retainedCount) { index ->
+            (index.toLong() * lastIndex / (retainedCount - 1)).toInt()
+        }
     }
 }

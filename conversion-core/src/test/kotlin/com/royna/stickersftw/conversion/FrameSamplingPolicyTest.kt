@@ -89,44 +89,77 @@ class FrameSamplingPolicyTest {
     }
 
     @Test
-    fun `interior decoder gap needs no explicit trailing hold`() {
-        assertNull(
-            FrameSamplingPolicy.trailingHoldTimestampMs(
-                wantedTimestampsMs = listOf(0L, 33L, 66L, 99L),
-                decodedTimestampsMs = listOf(0L, 66L, 99L),
-            ),
-        )
+    fun `complete sampled timeline determines intended duration`() {
+        assertEquals(132L, FrameSamplingPolicy.durationMs(listOf(0L, 33L, 66L, 99L)))
+        assertEquals(132L, FrameSamplingPolicy.durationMs(listOf(20L, 53L, 86L, 119L)))
     }
 
     @Test
-    fun `missing final decoder output holds the previous frame to the intended tail`() {
-        assertEquals(
-            99L,
-            FrameSamplingPolicy.trailingHoldTimestampMs(
-                wantedTimestampsMs = listOf(0L, 33L, 66L, 99L),
-                decodedTimestampsMs = listOf(0L, 33L, 66L),
-            ),
-        )
-    }
-
-    @Test
-    fun `missing first decoder output restores duration after rebasing`() {
+    fun `explicit duration preserves cadence after multiple decoder drops`() {
         assertEquals(
             132L,
-            FrameSamplingPolicy.trailingHoldTimestampMs(
-                wantedTimestampsMs = listOf(0L, 33L, 66L, 99L),
-                decodedTimestampsMs = listOf(33L, 66L, 99L),
+            FrameSamplingPolicy.endTimestampMs(
+                retainedTimestampsMs = listOf(0L, 99L),
+                durationHintMs = 132L,
             ),
         )
     }
 
     @Test
-    fun `one decoded frame remains a static result`() {
-        assertNull(
-            FrameSamplingPolicy.trailingHoldTimestampMs(
-                wantedTimestampsMs = listOf(0L, 33L, 66L),
-                decodedTimestampsMs = listOf(0L),
+    fun `explicit duration survives size-budget frame decimation`() {
+        assertEquals(
+            165L,
+            FrameSamplingPolicy.endTimestampMs(
+                retainedTimestampsMs = listOf(0L, 66L, 132L),
+                durationHintMs = 165L,
             ),
         )
+    }
+
+    @Test
+    fun `nonzero first timestamp receives the same playback duration`() {
+        assertEquals(
+            165L,
+            FrameSamplingPolicy.endTimestampMs(
+                retainedTimestampsMs = listOf(33L, 99L),
+                durationHintMs = 132L,
+            ),
+        )
+    }
+
+    @Test
+    fun `missing duration hint retains timestamp inference`() {
+        assertEquals(
+            198L,
+            FrameSamplingPolicy.endTimestampMs(
+                retainedTimestampsMs = listOf(0L, 99L),
+                durationHintMs = null,
+            ),
+        )
+    }
+
+    @Test
+    fun `duration hint cannot end before the last retained frame`() {
+        assertEquals(
+            100L,
+            FrameSamplingPolicy.endTimestampMs(
+                retainedTimestampsMs = listOf(0L, 99L),
+                durationHintMs = 40L,
+            ),
+        )
+    }
+
+    @Test
+    fun `frame reduction keeps both endpoints at about half the count`() {
+        assertEquals(listOf(0, 2, 4), FrameSamplingPolicy.halfFrameIndices(5))
+        assertEquals(listOf(0, 2, 5), FrameSamplingPolicy.halfFrameIndices(6))
+        assertEquals(listOf(0, 2), FrameSamplingPolicy.halfFrameIndices(3))
+        assertEquals(listOf(0, 1), FrameSamplingPolicy.halfFrameIndices(2))
+    }
+
+    @Test
+    fun `empty timeline has no duration or end timestamp`() {
+        assertNull(FrameSamplingPolicy.durationMs(emptyList()))
+        assertNull(FrameSamplingPolicy.endTimestampMs(emptyList(), 132L))
     }
 }

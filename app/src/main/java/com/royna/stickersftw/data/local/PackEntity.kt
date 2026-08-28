@@ -29,19 +29,30 @@ data class PackEntity(
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
     /** Signature of the *full* upstream Telegram set (title + every sticker's
-     * id:emoji) at the time of the last import/update -- null/unused for
+     * stable identity:emoji) at the last import/update -- null/unused for
      * Created packs. Compared against a fresh fetch to detect drift. */
     val sourceSignature: String? = null,
     val updateAvailable: Boolean = false,
     val updateCheckEnabled: Boolean = true,
     /** Part index used at import time; replayed verbatim when the user
-     * chooses to update (always 0 for a custom or single-part import). */
+     * chooses to update. Negative sentinels preserve custom selections and
+     * mixed-pack animated splits rather than coercing either to part zero. */
     val importPartIndex: Int = 0,
+    /** Original non-negative Telegram part for subset/split imports whose
+     * [importPartIndex] is a negative selection sentinel. Retaining it keeps
+     * duplicate detection and multi-part ownership unambiguous. */
+    val sourcePartIndex: Int? = null,
     /** Which ConversionBias produced this pack's animated stickers, so the
      * pack can say what it was made with. Null for a static pack (the knob
      * changes nothing there) and for anything converted before the setting
      * existed. */
     val conversionBias: String? = null,
+    /** App build that last rebuilt every WhatsApp asset in this imported
+     * pack. Both values are null for packs converted before this bookkeeping
+     * existed. The numeric code is authoritative for ordering; the name is
+     * retained only for a human-readable label. */
+    val convertedAppVersionCode: Int? = null,
+    val convertedAppVersionName: String? = null,
     /** What the provider reports as WhatsApp's `image_data_version`.
      *
      * WhatsApp caches a pack's assets against this value and only re-reads

@@ -12,6 +12,18 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PackOperationRequestInstrumentedTest {
     @Test
+    fun reconvertRoundTripKeepsPackIdentity() {
+        val request = PackOperationRequest.Reconvert(
+            packId = "imported-pack-id",
+            packTitle = "Imported Pack",
+        )
+
+        val restored = PackOperationRequest.readFrom(request.writeTo(Intent()))
+
+        assertEquals(request, restored)
+    }
+
+    @Test
     fun addStickersRoundTripKeepsEdits() {
         val request = PackOperationRequest.AddStickers(
             packId = "pack-id",

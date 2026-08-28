@@ -16,7 +16,10 @@ import kotlinx.coroutines.ensureActive
 object AnimatedStickerConverter {
     private const val MAX_FRAMES = 120
 
-    suspend fun extractFrames(tgsFile: File, targetPx: Int): List<TimedFrame>? {
+    suspend fun extractFrames(tgsFile: File, targetPx: Int): List<TimedFrame>? =
+        extractFrameSequence(tgsFile, targetPx)?.frames
+
+    suspend fun extractFrameSequence(tgsFile: File, targetPx: Int): TimedFrameSequence? {
         val json = try {
             GZIPInputStream(tgsFile.inputStream()).use { it.readBytes() }
         } catch (_: Exception) {
@@ -52,5 +55,6 @@ object AnimatedStickerConverter {
         }
 
         return frames.takeIf { it.isNotEmpty() }
+            ?.let { TimedFrameSequence(it, durationMs) }
     }
 }

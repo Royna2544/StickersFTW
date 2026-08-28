@@ -36,6 +36,11 @@ sealed class PackOperationRequest {
         override val packTitle: String,
     ) : PackOperationRequest()
 
+    data class Reconvert(
+        override val packId: String,
+        override val packTitle: String,
+    ) : PackOperationRequest()
+
     data class Publish(
         override val packId: String,
         override val packTitle: String,
@@ -78,6 +83,7 @@ sealed class PackOperationRequest {
                 putExtra(KEY_SELECTED_IDS, selectedIds.toTypedArray())
             }
             is Update -> putExtra(KEY_KIND, KIND_UPDATE)
+            is Reconvert -> putExtra(KEY_KIND, KIND_RECONVERT)
             is Publish -> {
                 putExtra(KEY_KIND, KIND_PUBLISH)
                 putExtra(KEY_PUSH_TELEGRAM, pushToTelegram)
@@ -119,6 +125,7 @@ sealed class PackOperationRequest {
         private const val KIND_IMPORT = "import"
         private const val KIND_IMPORT_CUSTOM = "importCustom"
         private const val KIND_UPDATE = "update"
+        private const val KIND_RECONVERT = "reconvert"
         private const val KIND_PUBLISH = "publish"
         private const val KIND_ADD_STICKERS = "addStickers"
         private const val KIND_EDIT_STICKER = "editSticker"
@@ -140,6 +147,7 @@ sealed class PackOperationRequest {
                     intent.getStringArrayExtra(KEY_SELECTED_IDS).orEmpty().toSet(),
                 )
                 KIND_UPDATE -> Update(packId, packTitle)
+                KIND_RECONVERT -> Reconvert(packId, packTitle)
                 KIND_PUBLISH -> Publish(
                     packId,
                     packTitle,

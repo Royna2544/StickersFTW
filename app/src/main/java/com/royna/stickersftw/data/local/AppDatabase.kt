@@ -8,7 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.execSQL
 
-@Database(entities = [PackEntity::class, StickerEntity::class], version = 7, exportSchema = false)
+@Database(entities = [PackEntity::class, StickerEntity::class], version = 8, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun packDao(): PackDao
     abstract fun stickerDao(): StickerDao
@@ -118,6 +118,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Records the build that last completed a full import conversion and
+         * adds stable source-selection identity. Historical build/identity
+         * values deliberately remain unknown rather than suppressing the
+         * one-time reconversion offer or inventing Telegram metadata. */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("ALTER TABLE packs ADD COLUMN convertedAppVersionCode INTEGER")
+                connection.execSQL("ALTER TABLE packs ADD COLUMN convertedAppVersionName TEXT")
+                connection.execSQL("ALTER TABLE packs ADD COLUMN sourcePartIndex INTEGER")
+                connection.execSQL("ALTER TABLE stickers ADD COLUMN remoteStableId TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -131,6 +144,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
+                        MIGRATION_7_8,
                     )
                     // Still the fallback for the one earlier bump that never
                     // got a migration written; 2 -> 3 now takes the path above

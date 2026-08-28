@@ -104,9 +104,15 @@ class DirectTelegramBackendTest {
             name = "ducks",
             title = "Ducks",
             stickers = listOf(
-                TgSticker(fileId = "vid", width = 512, height = 512, isVideo = true),
-                TgSticker(fileId = "anim", width = 512, height = 512, isAnimated = true),
-                TgSticker(fileId = "static", width = 512, height = 512, thumbnail = TgPhotoSize("thumb1", 96, 96)),
+                TgSticker(fileId = "vid", fileUniqueId = "unique-vid", width = 512, height = 512, isVideo = true),
+                TgSticker(fileId = "anim", fileUniqueId = "unique-anim", width = 512, height = 512, isAnimated = true),
+                TgSticker(
+                    fileId = "static",
+                    fileUniqueId = "unique-static",
+                    width = 512,
+                    height = 512,
+                    thumbnail = TgPhotoSize("thumb1", 96, 96),
+                ),
             ),
         )
         val backend = DirectTelegramBackend("tok", FakeTelegramBotApi(stickerSet = set), FakeTelegramFileApi())
@@ -118,6 +124,9 @@ class DirectTelegramBackendTest {
         assertEquals("application/x-tgsticker", stickers.getValue("anim").knownContentType)
         assertEquals("image/webp", stickers.getValue("static").knownContentType)
         assertEquals("thumb1", stickers.getValue("static").thumb)
+        assertEquals("unique-vid", stickers.getValue("vid").stableId)
+        assertEquals("unique-anim", stickers.getValue("anim").stableId)
+        assertEquals("unique-static", stickers.getValue("static").stableId)
     }
 
     @Test
