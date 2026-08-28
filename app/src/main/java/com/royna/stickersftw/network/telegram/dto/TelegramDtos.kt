@@ -28,6 +28,7 @@ data class TgStickerSet(
 
 data class TgSticker(
     @SerializedName("file_id") val fileId: String,
+    @SerializedName("file_unique_id") val fileUniqueId: String? = null,
     val width: Int,
     val height: Int,
     @SerializedName("is_animated") val isAnimated: Boolean = false,

@@ -126,6 +126,18 @@ internal fun deriveWhatsappFreshness(
     else -> WhatsappFreshnessState.NeedsRefresh
 }
 
+/** Only complete, ready Telegram imports can be safely rebuilt as a unit.
+ * Unknown historical builds are treated as old, while a pack made by a
+ * newer build is left alone when the app itself has been downgraded. */
+internal fun deriveNeedsReconversion(
+    origin: PackOrigin,
+    status: PackStatus,
+    convertedAppVersionCode: Int?,
+    currentAppVersionCode: Int,
+): Boolean = origin == PackOrigin.Imported &&
+    status == PackStatus.Ready &&
+    (convertedAppVersionCode == null || convertedAppVersionCode < currentAppVersionCode)
+
 internal fun deriveTelegramFreshness(
     origin: PackOrigin,
     imageDataVersion: Int,
@@ -178,17 +190,22 @@ data class StickerPack(
     val whatsappFreshness: WhatsappFreshnessState = WhatsappFreshnessState.NotAdded,
     val telegramFreshness: TelegramFreshnessState = TelegramFreshnessState.NotPushed,
     val updateAvailable: Boolean = false,
-    /** The canonical Telegram set name this pack was imported from, and
-     * which slice of it (-1 = hand-picked custom selection, otherwise the
-     * 0-based part index) -- null/0 for a Created pack. Lets a new import
-     * be recognized as "the same pack/part already imported" instead of
-     * silently creating a duplicate entry. */
+    /** The canonical Telegram set name and selection used by this import.
+     * Negative [importPartIndex] values identify custom/type-split subsets;
+     * [sourcePartIndex] retains their original 0-based part so a new import
+     * is still recognized as the same source pack/part. */
     val telegramSetName: String? = null,
     val importPartIndex: Int = 0,
+    val sourcePartIndex: Int? = null,
     /** Which [ConversionBias] this pack's animated stickers were built with.
      * Null for static packs and for anything converted before the setting
      * existed. */
     val conversionBias: ConversionBias? = null,
+    /** App build that last completed a full conversion of this imported pack.
+     * The version code drives freshness; the name is presentation-only. */
+    val convertedAppVersionCode: Int? = null,
+    val convertedAppVersionName: String? = null,
+    val needsReconversion: Boolean = false,
     /** Imported or otherwise upstream-linked packs are preserved by cloning
      * them to a local Created pack before the first editor mutation. */
     val requiresLocalRemix: Boolean = false,

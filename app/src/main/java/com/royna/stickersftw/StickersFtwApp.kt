@@ -50,6 +50,7 @@ import com.royna.stickersftw.ui.MediaPreparationPurpose
 import com.royna.stickersftw.ui.components.DuplicatePackOverwriteDialog
 import com.royna.stickersftw.ui.components.ExpandableActionFab
 import com.royna.stickersftw.ui.components.MixedPackChoiceDialog
+import com.royna.stickersftw.ui.components.ReimportUpdatedPackDialog
 import com.royna.stickersftw.ui.components.RemixPackDialog
 import com.royna.stickersftw.ui.screens.ConversionScreen
 import com.royna.stickersftw.ui.screens.ConvertScreen
@@ -180,6 +181,8 @@ fun StickersFtwApp(
     val mediaPreparationDeliveryRevision by
         viewModel.mediaPreparationDeliveryRevision.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
+    val reimportUpdatedPackPrompt by viewModel.reimportUpdatedPackPrompt.collectAsStateWithLifecycle()
+    val reconversionCheckPackId by viewModel.reconversionCheckPackId.collectAsStateWithLifecycle()
     val trimRequest by viewModel.trimRequest.collectAsStateWithLifecycle()
     val cropRequest by viewModel.cropRequest.collectAsStateWithLifecycle()
     val mixedPackQuestion by viewModel.mixedPackQuestion.collectAsStateWithLifecycle()
@@ -450,11 +453,18 @@ fun StickersFtwApp(
     LaunchedEffect(pendingNavigation) {
         val packId = pendingNavigation
         if (packId != null) {
-            // Import completion also replaces the current route. Apply the
-            // same ownership boundary as new-share and notification routing.
+            // Asynchronous import/reconversion decisions navigate here after
+            // their service request has actually been accepted.
             viewModel.cancelTrim()
             navController.navigate(Routes.conversion(packId)) {
-                popUpTo(Routes.Import) { inclusive = true }
+                // Fresh imports replace their form. A retained reconversion
+                // preflight can finish while Pack Detail is current, where
+                // popping up to an unrelated Import route either does nothing
+                // useful or removes too much restored navigation state.
+                if (currentRoute == Routes.Import || currentRoute == Routes.ImportCustom) {
+                    popUpTo(Routes.Import) { inclusive = true }
+                }
+                launchSingleTop = true
             }
             viewModel.consumePendingNavigation()
         }
@@ -731,6 +741,8 @@ fun StickersFtwApp(
                             items = items,
                         )
                     },
+                    reconversionCheckInProgress = reconversionCheckPackId == pack?.id,
+                    onReconvert = viewModel::requestPackReconversion,
                 )
             }
             composable(Routes.UpdateDiff) { entry ->
@@ -1006,6 +1018,14 @@ fun StickersFtwApp(
             packTitle = prompt.packTitle,
             onOverwrite = prompt.onConfirm,
             onCancel = prompt.onReject,
+        )
+    }
+
+    reimportUpdatedPackPrompt?.let { prompt ->
+        ReimportUpdatedPackDialog(
+            packTitle = prompt.packTitle,
+            onYes = viewModel::confirmReimportUpdatedPack,
+            onNo = viewModel::declineReimportAndReconvertPack,
         )
     }
 

@@ -124,7 +124,10 @@ class PackOperationService : Service() {
                 request.packId,
                 settings.backendConfig,
                 settings.conversionBias,
-                PackOperationController::askMixedPack,
+            )
+            is PackOperationRequest.Reconvert -> packs.reconvertImportedPack(
+                request.packId,
+                settings.conversionBias,
             )
             is PackOperationRequest.Publish -> packs.publishPack(
                 request.packId,

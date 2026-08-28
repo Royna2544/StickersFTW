@@ -20,6 +20,12 @@ interface StickerDao {
     @Query("SELECT * FROM stickers WHERE packId = :packId AND remoteId = :remoteId LIMIT 1")
     suspend fun findByRemoteId(packId: String, remoteId: String): StickerEntity?
 
+    @Query(
+        "UPDATE stickers SET remoteStableId = :stableId " +
+            "WHERE packId = :packId AND remoteId = :remoteId",
+    )
+    suspend fun setRemoteStableId(packId: String, remoteId: String, stableId: String): Int
+
     @Query("SELECT * FROM stickers WHERE rowId = :rowId LIMIT 1")
     suspend fun findByRowId(rowId: Long): StickerEntity?
 

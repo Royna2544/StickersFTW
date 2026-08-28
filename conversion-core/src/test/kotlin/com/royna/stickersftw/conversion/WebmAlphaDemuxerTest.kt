@@ -1,6 +1,7 @@
 package com.royna.stickersftw.conversion
 
 import java.io.File
+import java.nio.ByteBuffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -59,8 +60,12 @@ class WebmAlphaDemuxerTest {
         alphaMode: Long,
         blocks: ByteArray,
         name: String,
+        durationTicks: Double? = null,
     ): File {
-        val segment = element(0x1549A966, element(0x2AD7B1, byteArrayOf(0x0F, 0x42, 0x40))) +
+        val info = element(0x2AD7B1, byteArrayOf(0x0F, 0x42, 0x40)) +
+            (durationTicks?.let { element(0x4489, ByteBuffer.allocate(8).putDouble(it).array()) }
+                ?: ByteArray(0))
+        val segment = element(0x1549A966, info) +
             element(0x1654AE6B, trackEntry(alphaMode)) +
             element(0x1F43B675, element(0xE7, uint(0)) + blocks)
         val file = File.createTempFile(name, ".webm")
@@ -118,6 +123,22 @@ class WebmAlphaDemuxerTest {
 
         assertEquals(0L, track.frames[0].presentationTimeUs)
         assertEquals(40_000L, track.frames[1].presentationTimeUs)
+    }
+
+    @Test
+    fun `reads exact declared duration using the timecode scale`() {
+        val file = writeWebm(
+            alphaMode = 1,
+            blocks = blockGroup(0, byteArrayOf(1), byteArrayOf(9)) +
+                blockGroup(2_800, byteArrayOf(2), byteArrayOf(8)),
+            name = "duration",
+            durationTicks = 2_833.0,
+        )
+
+        val track = requireNotNull(WebmAlphaDemuxer.readAlphaTrack(file))
+
+        assertEquals(2_833_000L, track.durationUs)
+        assertEquals(2_800_000L, track.frames.last().presentationTimeUs)
     }
 
     @Test

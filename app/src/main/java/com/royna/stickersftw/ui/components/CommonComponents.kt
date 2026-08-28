@@ -744,6 +744,37 @@ fun DuplicatePackOverwriteDialog(
     }
 }
 
+/** Shown after a forced freshness check finds that an old local conversion's
+ * Telegram source has also changed. The choice is deliberately explicit:
+ * dismiss/back must not silently start a potentially long reconversion. */
+@Composable
+fun ReimportUpdatedPackDialog(
+    packTitle: String,
+    onYes: () -> Unit,
+    onNo: () -> Unit,
+) {
+    FullScreenChoiceDialog(
+        title = stringResource(R.string.reimport_updated_pack_title, packTitle),
+        message = stringResource(R.string.reimport_updated_pack_message),
+        onDismissRequest = {},
+    ) {
+        Button(
+            onClick = onYes,
+            colors = appButtonColors(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_yes))
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onNo,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_no))
+        }
+    }
+}
+
 /** Full-screen for the same reason as [DuplicatePackOverwriteDialog] --
  * this permanently deletes the Telegram sticker set (not just the local
  * copy), which cannot be undone. */

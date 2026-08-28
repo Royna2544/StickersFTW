@@ -30,7 +30,7 @@ object StickerConversionPipeline {
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
-        val frames = framesFor(
+        val sequence = framesFor(
             input,
             stickerType,
             SizeBudget.STICKER_PX,
@@ -38,6 +38,7 @@ object StickerConversionPipeline {
             trimDurationMs,
             crop,
         ) ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
+        val frames = sequence.frames
 
         val isAnimated = frames.size > 1
         val outcome = if (isAnimated) {
@@ -46,6 +47,7 @@ object StickerConversionPipeline {
                 SizeBudget.STICKER_PX,
                 output,
                 SizeBudget.ANIMATED_MAX_BYTES,
+                totalDurationMs = sequence.durationMs,
                 bias = bias,
             )
         } else {
@@ -78,7 +80,7 @@ object StickerConversionPipeline {
     ): StickerConvertResult {
         output.parentFile?.mkdirs()
 
-        val frames = framesFor(
+        val sequence = framesFor(
             input,
             stickerType,
             SizeBudget.STICKER_PX,
@@ -86,6 +88,7 @@ object StickerConversionPipeline {
             trimDurationMs,
             crop,
         ) ?: return StickerConvertResult.Failed("Could not decode any usable frames.")
+        val frames = sequence.frames
 
         val outcome = if (forceAnimated) {
             if (frames.size > 1) {
@@ -94,6 +97,7 @@ object StickerConversionPipeline {
                     SizeBudget.STICKER_PX,
                     output,
                     SizeBudget.ANIMATED_MAX_BYTES,
+                    totalDurationMs = sequence.durationMs,
                     bias = bias,
                 )
             } else {
@@ -201,12 +205,12 @@ object StickerConversionPipeline {
         trimStartMs: Long = 0L,
         trimDurationMs: Long = 0L,
         crop: MediaCrop? = null,
-    ): List<TimedFrame>? = when (type) {
+    ): TimedFrameSequence? = when (type) {
         // Lottie takes no offset: a .tgs is authored as a sticker already and
         // is inside the duration limit by construction, so there is nothing to
         // choose between.
-        StickerMediaType.AnimatedLottie -> AnimatedStickerConverter.extractFrames(input, targetPx)
-        StickerMediaType.Video -> VideoStickerConverter.extractFrames(
+        StickerMediaType.AnimatedLottie -> AnimatedStickerConverter.extractFrameSequence(input, targetPx)
+        StickerMediaType.Video -> VideoStickerConverter.extractFrameSequence(
             input,
             targetPx,
             maxDurationMs = effectiveTrimDurationMs(
@@ -218,7 +222,9 @@ object StickerConversionPipeline {
         )
         else -> {
             val bitmap = BitmapFactory.decodeFile(input.absolutePath) ?: return null
-            listOf(TimedFrame(0L, BitmapPrep.cropAndFitSquare(bitmap, targetPx, crop)))
+            TimedFrameSequence(
+                listOf(TimedFrame(0L, BitmapPrep.cropAndFitSquare(bitmap, targetPx, crop))),
+            )
         }
     }
 

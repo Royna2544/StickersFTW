@@ -79,8 +79,42 @@ interface PackDao {
     )
     suspend fun getUpdateCheckCandidates(): List<PackEntity>
 
+    @Query(
+        "SELECT * FROM packs WHERE origin = 'Imported' AND telegramSetName = :setName",
+    )
+    suspend fun getImportedPacksForSet(setName: String): List<PackEntity>
+
     @Query("UPDATE packs SET updateAvailable = :available WHERE id = :id")
     suspend fun setUpdateAvailable(id: String, available: Boolean)
+
+    /** Refreshes an equivalent legacy signature to the latest stable format
+     * while clearing a stale dot. The snapshot guard prevents a network
+     * response started for an older revision from overwriting a newer pack. */
+    @Query(
+        "UPDATE packs SET sourceSignature = :signature, updateAvailable = 0 " +
+            "WHERE id = :id AND imageDataVersion = :expectedRevision AND " +
+            "((sourceSignature = :expectedSignature) OR " +
+            "(sourceSignature IS NULL AND :expectedSignature IS NULL))",
+    )
+    suspend fun markSourceCurrentIfUnchanged(
+        id: String,
+        signature: String,
+        expectedSignature: String?,
+        expectedRevision: Int,
+    ): Int
+
+    @Query(
+        "UPDATE packs SET updateAvailable = :available " +
+            "WHERE id = :id AND imageDataVersion = :expectedRevision AND " +
+            "((sourceSignature = :expectedSignature) OR " +
+            "(sourceSignature IS NULL AND :expectedSignature IS NULL))",
+    )
+    suspend fun setUpdateAvailableIfUnchanged(
+        id: String,
+        available: Boolean,
+        expectedSignature: String?,
+        expectedRevision: Int,
+    ): Int
 
     @Query(
         "UPDATE packs SET updateCheckEnabled = :enabled, updateAvailable = CASE WHEN :enabled THEN updateAvailable ELSE 0 END WHERE id = :id",

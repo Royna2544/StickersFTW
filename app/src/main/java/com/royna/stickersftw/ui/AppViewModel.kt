@@ -62,6 +62,20 @@ data class DuplicatePackPrompt(
     val onReject: () -> Unit,
 )
 
+/** Retained result of a reconversion preflight that found newer Telegram
+ * content. Keeping only stable pack data here means Activity recreation can
+ * redraw the same decision without repeating the network request or starting
+ * either operation on the user's behalf. */
+data class ReimportUpdatedPackPrompt(
+    val packId: String,
+    val packTitle: String,
+)
+
+internal fun StickerPack.matchesImportedPart(shortName: String, partIndex: Int): Boolean =
+    origin == PackOrigin.Imported &&
+        telegramSetName == shortName &&
+        (importPartIndex == partIndex || sourcePartIndex == partIndex)
+
 /** Synchronous gate between a Create button click and the coroutine that
  * persists its pack. The operation-availability check is part of acquisition
  * so a rejected attempt does not consume the user's ability to retry. */
@@ -405,10 +419,20 @@ class AppViewModel(
     private val _duplicatePrompt = MutableStateFlow<DuplicatePackPrompt?>(null)
     val duplicatePrompt: StateFlow<DuplicatePackPrompt?> = _duplicatePrompt.asStateFlow()
 
+    private val _reimportUpdatedPackPrompt = MutableStateFlow<ReimportUpdatedPackPrompt?>(null)
+    val reimportUpdatedPackPrompt: StateFlow<ReimportUpdatedPackPrompt?> =
+        _reimportUpdatedPackPrompt.asStateFlow()
+
+    /** The one pack whose Telegram source is being force-checked before an
+     * old local conversion is rebuilt. The detail screen uses this retained
+     * id to disable the action and show progress across recompositions. */
+    private val _reconversionCheckPackId = MutableStateFlow<String?>(null)
+    val reconversionCheckPackId: StateFlow<String?> = _reconversionCheckPackId.asStateFlow()
+
     /** One-shot signal for the UI to navigate to a just-started operation's
-     * Conversion screen -- a plain return value doesn't work here since a
-     * duplicate-pack import has to wait on [duplicatePrompt]'s answer
-     * first, so navigation can't happen synchronously at the call site. */
+     * Conversion screen. Duplicate imports and reconversion preflights both
+     * wait on asynchronous decisions, so neither can navigate synchronously
+     * at the original click site. */
     private val _pendingNavigation = MutableStateFlow<String?>(null)
     val pendingNavigation: StateFlow<String?> = _pendingNavigation.asStateFlow()
 
@@ -603,6 +627,98 @@ class AppViewModel(
         }
     }
 
+    /** Checks the live Telegram set before rebuilding an older app-version's
+     * local output. Unchanged content can use the durable originals directly;
+     * changed content requires an explicit re-import decision first. */
+    fun requestPackReconversion(packId: String) {
+        val pack = packs.value.firstOrNull { it.id == packId } ?: return
+        if (!pack.needsReconversion || _reconversionCheckPackId.value != null ||
+            _reimportUpdatedPackPrompt.value != null
+        ) {
+            return
+        }
+        if (PackOperationController.isRunning) {
+            _busyMessage.value = getApplication<Application>().getString(R.string.err_operation_already_running)
+            return
+        }
+
+        _reconversionCheckPackId.value = packId
+        viewModelScope.launch {
+            try {
+                when (val result = packRepository.forceRefreshPack(packId, settings.value.backendConfig)) {
+                    StickerPackRepository.ForceRefreshResult.UpToDate -> {
+                        val current = packs.value.firstOrNull {
+                            it.id == packId && it.needsReconversion
+                        } ?: return@launch
+                        if (
+                            start(
+                                PackOperationRequest.Reconvert(
+                                    packId = current.id,
+                                    packTitle = current.title,
+                                ),
+                            )
+                        ) {
+                            _pendingNavigation.value = current.id
+                        }
+                    }
+                    StickerPackRepository.ForceRefreshResult.UpdateAvailable -> {
+                        val current = packs.value.firstOrNull {
+                            it.id == packId && it.needsReconversion
+                        } ?: return@launch
+                        _reimportUpdatedPackPrompt.value = ReimportUpdatedPackPrompt(
+                            packId = current.id,
+                            packTitle = current.title,
+                        )
+                    }
+                    is StickerPackRepository.ForceRefreshResult.Failed -> {
+                        _busyMessage.value = result.reason
+                    }
+                }
+            } finally {
+                if (_reconversionCheckPackId.value == packId) {
+                    _reconversionCheckPackId.value = null
+                }
+            }
+        }
+    }
+
+    /** Yes on the upstream-change prompt: import Telegram's current snapshot
+     * under the same pack id. The normal update finalization supplies the
+     * conversion-version stamp and monotonic WhatsApp revision bump. */
+    fun confirmReimportUpdatedPack() {
+        val prompt = _reimportUpdatedPackPrompt.value ?: return
+        _reimportUpdatedPackPrompt.value = null
+        resetPreview()
+        if (
+            start(
+                PackOperationRequest.Update(
+                    packId = prompt.packId,
+                    packTitle = prompt.packTitle,
+                ),
+            )
+        ) {
+            _pendingNavigation.value = prompt.packId
+        }
+    }
+
+    /** No on the upstream-change prompt keeps the imported snapshot exactly
+     * as it is, but still rebuilds those cached originals with this app
+     * version. The Telegram update flag remains available for later review. */
+    fun declineReimportAndReconvertPack() {
+        val prompt = _reimportUpdatedPackPrompt.value ?: return
+        _reimportUpdatedPackPrompt.value = null
+        if (
+            start(
+                PackOperationRequest.Reconvert(
+                    packId = prompt.packId,
+                    packTitle = prompt.packTitle,
+                ),
+            )
+        ) {
+            _pendingNavigation.value = prompt.packId
+        }
+    }
+
     fun loadPreview(input: String) {
         lastPreviewInput = input
         // The sticker order/contents could differ from any earlier preview
@@ -685,9 +801,25 @@ class AppViewModel(
         partIndex: Int,
         request: (packId: String, packTitle: String) -> PackOperationRequest,
     ) {
-        val existing = packs.value.firstOrNull {
-            it.origin == PackOrigin.Imported && it.telegramSetName == shortName && it.importPartIndex == partIndex
+        val allPacks = packs.value
+        val matches = allPacks.filter { it.matchesImportedPart(shortName, partIndex) }
+        val animatedSuffix = getApplication<Application>().getString(R.string.pack_animated_suffix)
+        val hasLegacySplitSibling = matches.any { base ->
+            allPacks.any { sibling ->
+                sibling.id != base.id &&
+                    sibling.origin == PackOrigin.Imported &&
+                    sibling.telegramSetName == shortName &&
+                    sibling.importPartIndex == StickerPackRepository.ANIMATED_SPLIT_PART_INDEX &&
+                    sibling.title == base.title + animatedSuffix
+            }
         }
+        if (matches.size > 1 || hasLegacySplitSibling) {
+            _busyMessage.value = getApplication<Application>().getString(
+                R.string.err_split_part_duplicate_import,
+            )
+            return
+        }
+        val existing = matches.singleOrNull()
         // A pack that never finished importing is not a duplicate worth
         // protecting -- since the row is now written up front, a failed or
         // interrupted attempt leaves one behind, and asking whether to

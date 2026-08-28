@@ -70,17 +70,29 @@ object WebpAnimationEncoder {
         output: File,
         maxBytes: Int,
         minimizeSize: Boolean = true,
+        /** Intended playback duration before decoder drops or size-budget
+         * frame decimation. Null retains legacy timestamp inference. */
+        totalDurationMs: Long? = null,
         bias: ConversionBias = ConversionBias.Auto,
     ): ConversionOutcome {
         if (frames.isEmpty()) return ConversionOutcome.Failed("No frames to encode.")
 
         output.parentFile?.mkdirs()
 
+        // Resolve the endpoint once from the complete extracted timeline.
+        // Recomputing it after every 2:1 frame cut changes playback speed:
+        // 0/33/66/99/132 becomes 0/66/132 and would otherwise infer a 198ms
+        // end instead of preserving the original 165ms span.
+        val endTimestampMs = FrameSamplingPolicy.endTimestampMs(
+            frames.map { it.timestampMs },
+            totalDurationMs,
+        )?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+            ?: return ConversionOutcome.Failed("Could not determine animation duration.")
+
         var currentFrames = frames
         var lastSize = -1
         while (true) {
             coroutineContext.ensureActive()
-            val totalDurationMs = (currentFrames.last().timestampMs + frameIntervalEstimate(currentFrames)).coerceAtLeast(1L)
 
             val ladder = qualityLadder(bias)
             for (quality in ladder) {
@@ -89,7 +101,7 @@ object WebpAnimationEncoder {
                     encodeOnce(
                         currentFrames,
                         targetPx,
-                        totalDurationMs.toInt(),
+                        endTimestampMs,
                         minimizeSize,
                         quality,
                         ENCODE_METHOD,
@@ -123,7 +135,7 @@ object WebpAnimationEncoder {
                     encodeOnce(
                         currentFrames,
                         targetPx,
-                        totalDurationMs.toInt(),
+                        endTimestampMs,
                         minimizeSize,
                         quality,
                         FINAL_FIT_METHOD,
@@ -144,9 +156,10 @@ object WebpAnimationEncoder {
             // Lowest quality still doesn't fit -- WhatsApp rejects the whole
             // pack over a single oversized sticker, so shipping this anyway
             // (as a prior version of this code did, via a warning) is worse
-            // than dropping the sticker. Halve the frame count (keeping
-            // every other frame, so total playback duration is preserved
-            // via the same timestamps) and retry the whole quality ladder --
+            // than dropping the sticker. Halve the frame count (distributing
+            // retained frames across both visual endpoints) and retry the
+            // whole quality ladder; the immutable end timestamp preserves
+            // total playback duration --
             // fewer frames is a far bigger size lever than quality at the
             // low end.
             if (currentFrames.size <= MIN_FRAMES_FLOOR) {
@@ -155,7 +168,8 @@ object WebpAnimationEncoder {
                         "quality -- exceeds the ${maxBytes / 1024}KB budget.",
                 )
             }
-            currentFrames = currentFrames.filterIndexed { index, _ -> index % 2 == 0 }
+            currentFrames = FrameSamplingPolicy.halfFrameIndices(currentFrames.size)
+                .map(currentFrames::get)
         }
     }
 
@@ -234,9 +248,5 @@ object WebpAnimationEncoder {
             }
             it.assemble(totalDurationMs) ?: error("Could not assemble the animation.")
         }
-    }
-
-    private fun frameIntervalEstimate(frames: List<TimedFrame>): Long {
-        return FrameSamplingPolicy.estimateIntervalMs(frames.map { it.timestampMs })
     }
 }

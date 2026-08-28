@@ -46,6 +46,7 @@ class DirectTelegramBackend(
         stickers = stickers.map { sticker ->
             StickerDto(
                 id = sticker.fileId,
+                stableId = sticker.fileUniqueId,
                 width = sticker.width,
                 height = sticker.height,
                 size = sticker.fileSize ?: 0,

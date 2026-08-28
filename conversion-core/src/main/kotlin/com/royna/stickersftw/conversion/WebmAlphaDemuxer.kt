@@ -1,6 +1,7 @@
 package com.royna.stickersftw.conversion
 
 import java.io.File
+import kotlin.math.ceil
 
 /** One frame of a WebM video track: the primary bitstream, plus the separate
  * bitstream encoding its transparency when the file carries one. */
@@ -17,6 +18,9 @@ data class WebmAlphaTrack(
     val height: Int,
     val codecPrivate: ByteArray?,
     val frames: List<WebmFrame>,
+    /** Matroska Info.Duration converted to microseconds using TimecodeScale.
+     * Null only when the container omits or malforms the optional field. */
+    val durationUs: Long? = null,
 )
 
 /** A deliberately minimal Matroska reader for exactly one case: a Telegram
@@ -38,6 +42,7 @@ object WebmAlphaDemuxer {
     private const val ID_SEGMENT = 0x18538067L
     private const val ID_INFO = 0x1549A966L
     private const val ID_TIMECODE_SCALE = 0x2AD7B1L
+    private const val ID_DURATION = 0x4489L
     private const val ID_TRACKS = 0x1654AE6BL
     private const val ID_TRACK_ENTRY = 0xAEL
     private const val ID_TRACK_NUMBER = 0xD7L
@@ -87,6 +92,7 @@ object WebmAlphaDemuxer {
     private fun parse(data: ByteArray): WebmAlphaTrack? {
         val segment = findSegment(data) ?: return null
         var timecodeScale = DEFAULT_TIMECODE_SCALE
+        var durationTicks: Double? = null
         var track: TrackInfo? = null
         val frames = mutableListOf<WebmFrame>()
 
@@ -94,7 +100,11 @@ object WebmAlphaDemuxer {
         while (reader.hasMore()) {
             val element = reader.readElement() ?: return null
             when (element.id) {
-                ID_INFO -> timecodeScale = readTimecodeScale(data, element) ?: timecodeScale
+                ID_INFO -> {
+                    val info = readInfo(data, element) ?: return null
+                    timecodeScale = info.timecodeScale ?: timecodeScale
+                    durationTicks = info.durationTicks
+                }
                 ID_TRACKS -> track = readVideoTrack(data, element) ?: return null
                 ID_CLUSTER -> {
                     val known = track ?: return null
@@ -106,7 +116,17 @@ object WebmAlphaDemuxer {
         val known = track ?: return null
         if (!known.hasAlpha) return null
         if (frames.isEmpty() || frames.none { it.alpha != null }) return null
-        return WebmAlphaTrack(known.mime, known.width, known.height, known.codecPrivate, frames)
+        val durationUs = durationTicks
+            ?.takeIf { it.isFinite() && it > 0.0 }
+            ?.let { ceil(it * timecodeScale.toDouble() / 1000.0).toLong() }
+        return WebmAlphaTrack(
+            known.mime,
+            known.width,
+            known.height,
+            known.codecPrivate,
+            frames,
+            durationUs,
+        )
     }
 
     private fun findSegment(data: ByteArray): Pair<Int, Int>? {
@@ -118,13 +138,20 @@ object WebmAlphaDemuxer {
         return null
     }
 
-    private fun readTimecodeScale(data: ByteArray, info: Element): Long? {
+    private data class Info(val timecodeScale: Long?, val durationTicks: Double?)
+
+    private fun readInfo(data: ByteArray, info: Element): Info? {
+        var timecodeScale: Long? = null
+        var durationTicks: Double? = null
         val reader = Reader(data, info.start, info.end)
         while (reader.hasMore()) {
             val element = reader.readElement() ?: return null
-            if (element.id == ID_TIMECODE_SCALE) return uint(data, element)
+            when (element.id) {
+                ID_TIMECODE_SCALE -> timecodeScale = uint(data, element)
+                ID_DURATION -> durationTicks = floatingPoint(data, element)
+            }
         }
-        return null
+        return Info(timecodeScale, durationTicks)
     }
 
     private class TrackInfo(
@@ -332,6 +359,14 @@ object WebmAlphaDemuxer {
             value = (value shl 8) or (data[i].toLong() and 0xFF)
         }
         return value
+    }
+
+    /** EBML floating-point values are big-endian IEEE-754, either 32 or 64
+     * bits. Matroska permits no other payload width for Duration. */
+    private fun floatingPoint(data: ByteArray, element: Element): Double? = when (element.end - element.start) {
+        4 -> Float.fromBits(uint(data, element).toInt()).toDouble()
+        8 -> Double.fromBits(uint(data, element))
+        else -> null
     }
 
     private fun string(data: ByteArray, element: Element): String =
