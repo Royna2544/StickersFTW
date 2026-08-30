@@ -172,7 +172,7 @@ class StickerPackRepositoryForkInstrumentedTest {
         val forkTray = File(fork.trayIconPath!!).canonicalFile
         assertTrue(forkTray.path.startsWith(forkPrefix))
         assertArrayEquals(sourceTrayBytes, forkTray.readBytes())
-        assertNotEquals(File(sourcePackBefore.trayIconPath!!).canonicalPath, forkTray.path)
+        assertNotEquals(File(sourcePackBefore.trayIconPath).canonicalPath, forkTray.path)
 
         val forkRows = database.stickerDao().getStickersOnce(result.newPackId)
             .associateBy { it.rowId }

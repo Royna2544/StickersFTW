@@ -2595,9 +2595,14 @@ class StickerPackRepository(private val appContext: Context) {
         val animated = converted.filter { it.isAnimated }
         if (animated.isEmpty()) return null
 
-        val animatedOutputPaths = animated.map { it.output.absolutePath }.toSet()
+        // Typed rather than inferred: absolutePath is a Java platform type, so
+        // the set would otherwise be compared against a nullable path without
+        // either side saying what happens to a null.
+        val animatedOutputPaths: Set<String> = animated.map { it.output.absolutePath }.toSet()
         val rows = stickerDao.getStickersOnce(packId)
-            .filter { it.convertedWhatsappPath in animatedOutputPaths }
+            // A sticker that never produced a converted file cannot be one of
+            // the animated outputs.
+            .filter { row -> row.convertedWhatsappPath?.let { it in animatedOutputPaths } == true }
             .sortedBy { it.position }
         if (rows.size != animated.size) return null
 
