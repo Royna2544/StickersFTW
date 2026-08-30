@@ -8,6 +8,11 @@ import com.royna.stickersftw.BuildConfig
 import com.royna.stickersftw.R
 import com.royna.stickersftw.conversion.PackConversionPlanner
 import com.royna.stickersftw.conversion.PlannerResult
+import com.royna.stickersftw.conversion.PackToCheck
+import com.royna.stickersftw.conversion.PackViolation
+import com.royna.stickersftw.conversion.StickerToCheck
+import com.royna.stickersftw.conversion.WebpProbe
+import com.royna.stickersftw.conversion.WhatsappPackValidator
 import com.royna.stickersftw.conversion.SizeBudget
 import com.royna.stickersftw.conversion.StickerConversionPipeline
 import com.royna.stickersftw.conversion.StickerConvertResult
@@ -2814,6 +2819,52 @@ class StickerPackRepository(private val appContext: Context) {
         val consumer = WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, id, business = false)
         val business = WhatsAppWhitelistChecker.isWhitelisted(appContext, authority, id, business = true)
         return combineWhatsappWhitelistStates(consumer, business)
+    }
+
+    /** What WhatsApp would refuse this pack for, checked before handing it
+     * over.
+     *
+     * WhatsApp's own answer is a single toast naming neither the rule nor the
+     * sticker, so without this a pack that took minutes to convert simply
+     * cannot be added and nothing says why -- which is how a pack left with no
+     * tray icon by a type split went unnoticed.
+     *
+     * Reads the same fields [com.royna.stickersftw.whatsapp.StickerContentProvider]
+     * serves, including skipping stickers with no converted file: those are
+     * not offered to WhatsApp either, so counting them would check a pack that
+     * is not the one being added. */
+    suspend fun whatsappViolations(packId: String): List<PackViolation> = withContext(Dispatchers.IO) {
+        val pack = packDao.getPack(packId)
+            ?: return@withContext listOf(PackViolation.FieldBlank(com.royna.stickersftw.conversion.PackField.IDENTIFIER))
+        val stickers = stickerDao.getStickersOnce(packId)
+            .sortedBy { it.position }
+            .filter { it.convertedWhatsappPath != null }
+
+        WhatsappPackValidator.validate(
+            PackToCheck(
+                identifier = pack.id,
+                name = pack.title,
+                publisher = pack.publisher,
+                isAnimated = pack.isAnimatedPack,
+                tray = pack.trayIconPath?.let { WebpProbe.read(File(it)) },
+                stickers = stickers.map { sticker ->
+                    val file = File(sticker.convertedWhatsappPath!!)
+                    StickerToCheck(
+                        label = file.name,
+                        info = WebpProbe.read(file),
+                        // Counted the way the provider hands the column over
+                        // and WhatsApp reads it -- comma separated. Not via
+                        // parseStickerEmojis: that is the editor's input
+                        // validator, which answers null for anything it will
+                        // not accept as typed input, and its emoji ranges miss
+                        // whole blocks. Real Telegram packs use a star, which
+                        // it rejects -- so counting with it reported zero
+                        // emoji on packs WhatsApp had already accepted.
+                        emojiCount = sticker.emojis.split(',').count { it.isNotBlank() },
+                    )
+                },
+            ),
+        )
     }
 
     fun buildAddToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent =

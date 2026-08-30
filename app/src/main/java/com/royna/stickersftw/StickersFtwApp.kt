@@ -48,6 +48,7 @@ import com.royna.stickersftw.ui.CreatePackSubmissionResult
 import com.royna.stickersftw.ui.ImportPreviewUiState
 import com.royna.stickersftw.ui.MediaPreparationPurpose
 import com.royna.stickersftw.ui.components.DuplicatePackOverwriteDialog
+import com.royna.stickersftw.ui.components.WhatsappBlockedDialog
 import com.royna.stickersftw.ui.components.ExpandableActionFab
 import com.royna.stickersftw.ui.components.MixedPackChoiceDialog
 import com.royna.stickersftw.ui.components.ReimportUpdatedPackDialog
@@ -181,6 +182,7 @@ fun StickersFtwApp(
     val mediaPreparationDeliveryRevision by
         viewModel.mediaPreparationDeliveryRevision.collectAsStateWithLifecycle()
     val duplicatePrompt by viewModel.duplicatePrompt.collectAsStateWithLifecycle()
+    val whatsappBlocked by viewModel.whatsappBlocked.collectAsStateWithLifecycle()
     val reimportUpdatedPackPrompt by viewModel.reimportUpdatedPackPrompt.collectAsStateWithLifecycle()
     val reconversionCheckPackId by viewModel.reconversionCheckPackId.collectAsStateWithLifecycle()
     val trimRequest by viewModel.trimRequest.collectAsStateWithLifecycle()
@@ -1010,6 +1012,14 @@ fun StickersFtwApp(
             staticCount = question.staticCount,
             onSplit = { viewModel.answerMixedPack(splitByType = true) },
             onKeepTogether = { viewModel.answerMixedPack(splitByType = false) },
+        )
+    }
+
+    whatsappBlocked?.let { blocked ->
+        WhatsappBlockedDialog(
+            packTitle = blocked.packTitle,
+            violations = blocked.violations,
+            onDismiss = viewModel::dismissWhatsappBlocked,
         )
     }
 

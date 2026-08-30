@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.royna.stickersftw.R
 import com.royna.stickersftw.SharedMedia
 import com.royna.stickersftw.data.SettingsRepository
+import com.royna.stickersftw.conversion.PackViolation
 import com.royna.stickersftw.data.StickerPackRepository
 import com.royna.stickersftw.data.ForkPackResult
 import com.royna.stickersftw.data.ThemeModeCache
@@ -56,6 +57,13 @@ import kotlinx.coroutines.withContext
  * already in My Packs -- [onConfirm] overwrites it in place (same pack id,
  * old stickers/files replaced), [onReject] cancels the import outright
  * rather than silently creating a duplicate entry. */
+/** Why WhatsApp would refuse a pack, held so the app can say so itself
+ * instead of forwarding the user to a toast that explains nothing. */
+data class WhatsappBlocked(
+    val packTitle: String,
+    val violations: List<PackViolation>,
+)
+
 data class DuplicatePackPrompt(
     val packTitle: String,
     val onConfirm: () -> Unit,
@@ -415,6 +423,9 @@ class AppViewModel(
             )
         }
     }
+
+    private val _whatsappBlocked = MutableStateFlow<WhatsappBlocked?>(null)
+    val whatsappBlocked: StateFlow<WhatsappBlocked?> = _whatsappBlocked.asStateFlow()
 
     private val _duplicatePrompt = MutableStateFlow<DuplicatePackPrompt?>(null)
     val duplicatePrompt: StateFlow<DuplicatePackPrompt?> = _duplicatePrompt.asStateFlow()
@@ -1248,8 +1259,25 @@ class AppViewModel(
         }
     }
 
-    fun addToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent =
-        packRepository.buildAddToWhatsappIntent(packId, packTitle, business)
+    /** Returns the intent only if WhatsApp would actually accept the pack.
+     *
+     * WhatsApp's own rejection is one toast that names neither the rule nor
+     * the sticker, so handing over a pack known to be invalid spends the
+     * user's time to tell them nothing. When the pack fails, this reports what
+     * is wrong through [whatsappBlocked] and returns null, which the button
+     * already treats as "do not launch". */
+    suspend fun addToWhatsappIntent(packId: String, packTitle: String, business: Boolean): Intent? {
+        val violations = packRepository.whatsappViolations(packId)
+        if (violations.isNotEmpty()) {
+            _whatsappBlocked.value = WhatsappBlocked(packTitle, violations)
+            return null
+        }
+        return packRepository.buildAddToWhatsappIntent(packId, packTitle, business)
+    }
+
+    fun dismissWhatsappBlocked() {
+        _whatsappBlocked.value = null
+    }
 
     /** "Run in background" is now only a way out of the Conversion screen:
      * [PackOperationService] runs the work and posts its notification from

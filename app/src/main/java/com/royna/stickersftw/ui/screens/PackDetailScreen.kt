@@ -82,7 +82,7 @@ fun PackDetailScreen(
     onBack: () -> Unit,
     onTogglePinned: (String) -> Unit,
     onDelete: (String) -> Unit,
-    onBuildWhatsappIntent: () -> Intent?,
+    onBuildWhatsappIntent: suspend () -> Intent?,
     onWhatsappResult: (confirmed: Boolean, expectedRevision: Int, business: Boolean) -> Unit,
     onRefreshWhatsapp: (String) -> Unit,
     onPushToTelegram: (String) -> Unit,

@@ -59,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -89,6 +90,11 @@ import com.royna.stickersftw.ui.theme.TelegramBlue
 import com.royna.stickersftw.ui.theme.WhatsAppGreen
 import com.royna.stickersftw.ui.theme.appButtonColors
 import java.io.File
+import kotlinx.coroutines.launch
+import com.royna.stickersftw.conversion.PackField
+import com.royna.stickersftw.conversion.PackViolation
+import com.royna.stickersftw.conversion.SizeBudget
+import com.royna.stickersftw.conversion.WhatsappPackValidator
 
 @Composable
 fun PageHeader(
@@ -850,6 +856,99 @@ fun SuccessBadge(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+/** Says what WhatsApp would have refused the pack for, in place of the toast
+ * it shows instead -- which names neither the rule nor the sticker.
+ *
+ * Every violation is listed rather than only the first, so fixing one problem
+ * does not simply reveal the next. */
+private const val MAX_SHOWN_VIOLATIONS = 6
+
+@Composable
+fun WhatsappBlockedDialog(
+    packTitle: String,
+    violations: List<PackViolation>,
+    onDismiss: () -> Unit,
+) {
+    // One broken sticker usually means all of them are broken the same way, so
+    // a pack can produce thirty near-identical lines. The dialog does not
+    // scroll, and a list that runs off the bottom hides the very first reason
+    // -- which is the one most likely to explain the rest.
+    val shown = violations.take(MAX_SHOWN_VIOLATIONS)
+    // describe() is composable, so the mapping happens here where that is
+    // allowed -- joinToString is not inline and cannot host a composable call.
+    val described = shown.map { it.describe() }
+    val remaining = violations.size - shown.size
+    val reasons = described.joinToString(separator = "\n\n") { "• $it" } +
+        if (remaining > 0) "\n\n" + stringResource(R.string.wa_bad_more, remaining) else ""
+    FullScreenChoiceDialog(
+        title = stringResource(R.string.whatsapp_blocked_title),
+        message = stringResource(R.string.whatsapp_blocked_intro, packTitle) + "\n\n" + reasons,
+        onDismissRequest = onDismiss,
+    ) {
+        Button(
+            onClick = onDismiss,
+            colors = appButtonColors(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(stringResource(R.string.action_ok))
+        }
+    }
+}
+
+/** Kilobytes for people, not bytes: the limits are quoted in KB everywhere
+ * WhatsApp documents them. */
+private fun Long.asKilobytes(): Int = ((this + 512) / 1024).toInt()
+
+@Composable
+private fun PackViolation.describe(): String = when (this) {
+    is PackViolation.StickerCount -> stringResource(
+        R.string.wa_bad_sticker_count, count, SizeBudget.MIN_STICKERS, SizeBudget.MAX_STICKERS,
+    )
+    is PackViolation.StickerTooLarge -> stringResource(
+        R.string.wa_bad_sticker_size, sticker, bytes.asKilobytes(), limitBytes / 1024,
+    )
+    is PackViolation.StickerNotSquare -> stringResource(
+        R.string.wa_bad_sticker_dimensions, sticker, width, height, SizeBudget.STICKER_PX,
+    )
+    is PackViolation.WrongStickerType -> if (packIsAnimated) {
+        stringResource(R.string.wa_bad_still_in_animated, sticker)
+    } else {
+        stringResource(R.string.wa_bad_animated_in_still, sticker)
+    }
+    is PackViolation.FrameTooShort -> stringResource(
+        R.string.wa_bad_frame_duration, sticker, durationMs, SizeBudget.MIN_FRAME_DURATION_MS.toInt(),
+    )
+    is PackViolation.AnimationTooLong -> stringResource(
+        R.string.wa_bad_animation_length, sticker, totalMs, SizeBudget.MAX_TOTAL_DURATION_MS.toInt(),
+    )
+    is PackViolation.EmojiCount -> stringResource(
+        R.string.wa_bad_emoji_count, sticker, count, SizeBudget.MAX_EMOJIS,
+    )
+    is PackViolation.UnreadableSticker -> stringResource(R.string.wa_bad_unreadable, sticker)
+    PackViolation.TrayMissing -> stringResource(R.string.wa_bad_tray_missing)
+    is PackViolation.TrayTooLarge -> stringResource(
+        R.string.wa_bad_tray_size, bytes.asKilobytes(), limitBytes / 1024,
+    )
+    is PackViolation.TrayWrongSize -> stringResource(
+        R.string.wa_bad_tray_dimensions, width, height,
+        WhatsappPackValidator.MIN_TRAY_PX, WhatsappPackValidator.MAX_TRAY_PX,
+    )
+    is PackViolation.FieldBlank -> stringResource(R.string.wa_bad_field_blank, field.label())
+    is PackViolation.FieldTooLong -> stringResource(
+        R.string.wa_bad_field_long, field.label(), length, limit,
+    )
+    is PackViolation.IdentifierInvalid -> stringResource(R.string.wa_bad_identifier)
+}
+
+@Composable
+private fun PackField.label(): String = stringResource(
+    when (this) {
+        PackField.IDENTIFIER -> R.string.wa_field_identifier
+        PackField.NAME -> R.string.wa_field_name
+        PackField.PUBLISHER -> R.string.wa_field_publisher
+    },
+)
+
 /** Shared Add/refresh action for WhatsApp's ENABLE_STICKER_PACK dialog.
  * The displayed content revision and exact consumer/business target are
  * captured before launch. The owner uses a confirmed result for targeted
@@ -861,7 +960,7 @@ fun AddToWhatsAppButton(
     whatsappAvailable: Boolean,
     expectedRevision: Int,
     business: Boolean,
-    onBuildIntent: () -> Intent?,
+    onBuildIntent: suspend () -> Intent?,
     onResult: (confirmed: Boolean, expectedRevision: Int, business: Boolean) -> Unit,
     modifier: Modifier = Modifier,
     @StringRes labelRes: Int = R.string.action_add_to_whatsapp,
@@ -884,13 +983,19 @@ fun AddToWhatsAppButton(
         }
     }
 
+    // Building the intent now checks the pack against WhatsApp's own rules,
+    // which reads every converted file -- off the main thread, hence a scope.
+    val scope = rememberCoroutineScope()
+
     Column(modifier = modifier) {
         Button(
             onClick = {
-                onBuildIntent()?.let { intent ->
-                    pendingRevision = expectedRevision
-                    pendingBusiness = business
-                    launcher.launch(intent)
+                scope.launch {
+                    onBuildIntent()?.let { intent ->
+                        pendingRevision = expectedRevision
+                        pendingBusiness = business
+                        launcher.launch(intent)
+                    }
                 }
             },
             enabled = enabled && whatsappAvailable,

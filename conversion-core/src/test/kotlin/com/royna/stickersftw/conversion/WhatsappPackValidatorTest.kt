@@ -244,12 +244,12 @@ class WhatsappPackValidatorTest {
     fun blankAndOverlongFieldsAreRejected() {
         assertTrue(
             WhatsappPackValidator.validate(pack(name = "  "))
-                .contains(PackViolation.FieldBlank("name")),
+                .contains(PackViolation.FieldBlank(PackField.NAME)),
         )
         val long = "x".repeat(129)
         assertTrue(
             WhatsappPackValidator.validate(pack(publisher = long))
-                .contains(PackViolation.FieldTooLong("publisher", 129, 128)),
+                .contains(PackViolation.FieldTooLong(PackField.PUBLISHER, 129, 128)),
         )
     }
 

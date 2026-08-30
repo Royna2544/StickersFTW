@@ -48,12 +48,18 @@ sealed interface PackViolation {
 
     data class TrayWrongSize(val width: Int, val height: Int) : PackViolation
 
-    data class FieldBlank(val field: String) : PackViolation
+    data class FieldBlank(val field: PackField) : PackViolation
 
-    data class FieldTooLong(val field: String, val length: Int, val limit: Int) : PackViolation
+    data class FieldTooLong(val field: PackField, val length: Int, val limit: Int) : PackViolation
 
-    data class IdentifierInvalid(val identifier: String, val reason: String) : PackViolation
+    data class IdentifierInvalid(val identifier: String, val reason: IdentifierProblem) : PackViolation
 }
+
+/** Named rather than spelled out, so the layer with a string table decides
+ * the wording and this one stays free of English. */
+enum class PackField { IDENTIFIER, NAME, PUBLISHER }
+
+enum class IdentifierProblem { ILLEGAL_CHARACTERS, CONSECUTIVE_PERIODS }
 
 /** One sticker as the validator sees it. [info] is null when the file could
  * not be read at all, which is itself a violation rather than something to
@@ -105,9 +111,9 @@ object WhatsappPackValidator {
     private fun checkFields(pack: PackToCheck): List<PackViolation> {
         val violations = mutableListOf<PackViolation>()
         listOf(
-            "identifier" to pack.identifier,
-            "name" to pack.name,
-            "publisher" to pack.publisher,
+            PackField.IDENTIFIER to pack.identifier,
+            PackField.NAME to pack.name,
+            PackField.PUBLISHER to pack.publisher,
         ).forEach { (field, value) ->
             if (value.isBlank()) {
                 violations += PackViolation.FieldBlank(field)
@@ -120,8 +126,7 @@ object WhatsappPackValidator {
             if (!IDENTIFIER_ALLOWED.matches(pack.identifier)) {
                 violations += PackViolation.IdentifierInvalid(
                     pack.identifier,
-                    "may only contain letters, digits, underscores, hyphens, periods, " +
-                        "apostrophes and spaces",
+                    IdentifierProblem.ILLEGAL_CHARACTERS,
                 )
             } else if (pack.identifier.contains("..")) {
                 // Rejected on its own: an identifier becomes a path segment,
@@ -129,7 +134,7 @@ object WhatsappPackValidator {
                 // own directory.
                 violations += PackViolation.IdentifierInvalid(
                     pack.identifier,
-                    "may not contain two periods in a row",
+                    IdentifierProblem.CONSECUTIVE_PERIODS,
                 )
             }
         }
