@@ -87,8 +87,13 @@ class PackOperationService : Service() {
             try {
                 buildFlow(request).collect { progress ->
                     if (progress is PackOperationProgress.Progress && progress.slowFormat) slowFormat = true
-                    PackOperationController.publish(progress.toUiState(request.packId, startedAt, slowFormat))
+                    // Notify before publishing, not after. The Conversion
+                    // screen clears this notification the moment it renders a
+                    // finished operation, so if the state went out first that
+                    // clear could land before the very notification it means
+                    // to remove -- and the stale one would sit there for good.
                     notify(request, progress)
+                    PackOperationController.publish(progress.toUiState(request.packId, startedAt, slowFormat))
                 }
             } finally {
                 // DETACH so the terminal success/failure notification survives

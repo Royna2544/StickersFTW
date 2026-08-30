@@ -1288,6 +1288,17 @@ class AppViewModel(
         PackOperationNotifier.ensureChannel(getApplication())
     }
 
+    /** Clears the notification for an operation the user is currently looking
+     * at the result of.
+     *
+     * The notification exists so the outcome survives the app being closed
+     * while the work runs. Once that outcome is on screen it is only litter,
+     * and tapping it later reopens the Conversion screen for an operation that
+     * finished long ago. */
+    fun dismissOperationNotification(packId: String) {
+        PackOperationNotifier.cancel(getApplication(), packId)
+    }
+
     /** Only one pack may download/convert/publish at a time -- the server
      * flood-limits concurrent Telegram requests, and letting a second
      * operation silently cancel the first would orphan its progress. Returns

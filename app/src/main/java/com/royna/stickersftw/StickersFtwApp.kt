@@ -895,6 +895,18 @@ fun StickersFtwApp(
                 val showConvertOtherParts = pack?.origin == PackOrigin.Imported &&
                     (loadedPreview?.partCount ?: 1) > 1
                 val splitPack = conversion.splitPackId?.let { id -> packs.firstOrNull { it.id == id } }
+                // Looking at the result is the notification's whole purpose
+                // served, so it goes as soon as this screen shows one. Gated on
+                // the operation being this pack's: the shared conversion state
+                // still describes whatever ran last, and an unrelated pack's
+                // notification is not this screen's to clear.
+                val finishedPackId = id?.takeIf {
+                    conversion.packId == it &&
+                        (conversion.isComplete || conversion.errorMessage != null)
+                }
+                LaunchedEffect(finishedPackId) {
+                    if (finishedPackId != null) viewModel.dismissOperationNotification(finishedPackId)
+                }
                 ConversionScreen(
                     pack = pack,
                     state = conversion,
