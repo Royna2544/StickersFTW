@@ -12,6 +12,18 @@ import androidx.security.crypto.MasterKey
  * to call synchronously like every other `settings.value.xxx` read in this
  * app. */
 class SecureTokenStore(context: Context) {
+    /** Jetpack Security deprecated every API in security-crypto in
+     * 1.1.0-beta01 (June 2025) "in favour of existing platform APIs and
+     * direct use of Android Keystore", and shipped no successor. There is
+     * nothing to migrate *to* without owning the Keystore-backed AES-GCM
+     * envelope here, plus a one-time re-encryption of tokens already written
+     * under the old scheme -- a change to how a live credential is stored,
+     * which is not something to do as a side effect of clearing a warning.
+     *
+     * The APIs are still present and functional in the current stable 1.1.0,
+     * so this is suppressed rather than worked around, and stays a decision
+     * to be taken deliberately. */
+    @Suppress("DEPRECATION")
     private val prefs by lazy {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
