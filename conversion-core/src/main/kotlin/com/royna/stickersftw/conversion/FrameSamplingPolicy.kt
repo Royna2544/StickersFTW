@@ -77,6 +77,41 @@ object FrameSamplingPolicy {
         return maxOf(last + 1L, hinted ?: last + estimateIntervalMs(retainedTimestampsMs, fallbackMs))
     }
 
+    /** Which frames to keep so that timestamps strictly rise.
+     *
+     * libwebp turns the gap between consecutive timestamps into each frame's
+     * on-screen duration, so two frames sharing a millisecond leave the first
+     * lasting 0ms: encoded, paid for in bytes, and never displayed. WhatsApp
+     * refuses any frame under [SizeBudget.MIN_FRAME_DURATION_MS], so a handful
+     * of these makes a pack unaddable.
+     *
+     * They arise because timestamps are whole milliseconds and the sources are
+     * not: a VP9 stream can re-show a frame, and any decoder whose frames fall
+     * closer together than a millisecond collides once rounded. One real
+     * Telegram clip produces nine of them out of 57.
+     *
+     * Where two frames share an instant the later one wins, since it is the
+     * more current picture. A timestamp that goes backwards is treated the
+     * same way rather than being reordered -- decoders do hand frames back out
+     * of order, and inventing an order for them would be guessing.
+     *
+     * Collisions leave the maximum timestamp untouched, so an end timestamp
+     * derived from the full timeline stays valid. A backwards timestamp can
+     * lower it, which only lengthens the final frame against that fixed end
+     * rather than changing the animation's span. */
+    fun strictlyRisingIndices(timestampsMs: List<Long>): List<Int> {
+        if (timestampsMs.size < 2) return List(timestampsMs.size) { it }
+        val kept = mutableListOf(0)
+        for (index in 1 until timestampsMs.size) {
+            if (timestampsMs[index] > timestampsMs[kept.last()]) {
+                kept += index
+            } else {
+                kept[kept.lastIndex] = index
+            }
+        }
+        return kept
+    }
+
     /** Roughly halves a frame list while retaining both visual endpoints.
      * Dropping the final frame on every even-sized retry changes the pose held
      * immediately before the loop returns to frame zero, which can introduce

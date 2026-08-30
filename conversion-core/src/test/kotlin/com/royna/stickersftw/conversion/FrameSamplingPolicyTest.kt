@@ -162,4 +162,80 @@ class FrameSamplingPolicyTest {
         assertNull(FrameSamplingPolicy.durationMs(emptyList()))
         assertNull(FrameSamplingPolicy.endTimestampMs(emptyList(), 132L))
     }
+
+    @Test
+    fun `frames sharing a millisecond are folded to one`() {
+        // libwebp reads durations off the gaps, so the first of a colliding
+        // pair would otherwise be encoded with a 0ms duration.
+        val kept = FrameSamplingPolicy.strictlyRisingIndices(listOf(0L, 40L, 40L, 80L))
+
+        assertEquals(listOf(0, 2, 3), kept)
+    }
+
+    @Test
+    fun `the later picture wins a collision`() {
+        // Index 2, not index 1: both sit on 40ms and the later frame is the
+        // more current image.
+        val kept = FrameSamplingPolicy.strictlyRisingIndices(listOf(0L, 40L, 40L))
+
+        assertEquals(listOf(0, 2), kept)
+    }
+
+    @Test
+    fun `ordinary timing is left completely alone`() {
+        val timestamps = listOf(0L, 33L, 66L, 99L)
+
+        assertEquals(listOf(0, 1, 2, 3), FrameSamplingPolicy.strictlyRisingIndices(timestamps))
+    }
+
+    @Test
+    fun `a run of identical timestamps collapses to a single frame`() {
+        val kept = FrameSamplingPolicy.strictlyRisingIndices(listOf(0L, 0L, 0L, 0L))
+
+        assertEquals(listOf(3), kept)
+    }
+
+    @Test
+    fun `a timestamp that goes backwards does not break the ordering`() {
+        // Decoders do hand frames back out of order; whatever is kept must
+        // still rise, or the encoder writes another unshowable frame.
+        val kept = FrameSamplingPolicy.strictlyRisingIndices(listOf(0L, 40L, 30L, 80L))
+        val timestamps = listOf(0L, 40L, 30L, 80L)
+
+        assertEquals(kept.sorted(), kept)
+        val retained = kept.map(timestamps::get)
+        assertEquals(retained.sorted().distinct(), retained)
+    }
+
+    @Test
+    fun `a collision never shortens the animation`() {
+        // The end timestamp is resolved from the complete timeline, so folding
+        // must not move the maximum -- otherwise the animation would play back
+        // shorter than it was captured.
+        val timestamps = listOf(0L, 40L, 80L, 80L)
+
+        val kept = FrameSamplingPolicy.strictlyRisingIndices(timestamps)
+
+        assertEquals(80L, kept.map(timestamps::get).max())
+    }
+
+    @Test
+    fun `short lists are returned untouched`() {
+        assertEquals(emptyList<Int>(), FrameSamplingPolicy.strictlyRisingIndices(emptyList()))
+        assertEquals(listOf(0), FrameSamplingPolicy.strictlyRisingIndices(listOf(7L)))
+    }
+
+    /** The shape the real clip produces: 30fps rounded to whole milliseconds,
+     * so a repeated frame lands on its predecessor. Nine of this clip's 57
+     * encoded frames came out at 0ms. */
+    @Test
+    fun `the repeated-frame pattern that made a real pack unaddable is removed`() {
+        val timestamps = listOf(0L, 40L, 80L, 80L, 120L, 160L, 240L, 280L, 280L, 320L)
+
+        val kept = FrameSamplingPolicy.strictlyRisingIndices(timestamps)
+        val retained = kept.map(timestamps::get)
+
+        assertEquals(retained.distinct(), retained)
+        assertEquals(listOf(0L, 40L, 80L, 120L, 160L, 240L, 280L, 320L), retained)
+    }
 }

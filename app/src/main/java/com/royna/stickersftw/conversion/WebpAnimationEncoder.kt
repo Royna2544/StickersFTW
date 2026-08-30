@@ -89,7 +89,16 @@ object WebpAnimationEncoder {
         )?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
             ?: return ConversionOutcome.Failed("Could not determine animation duration.")
 
-        var currentFrames = frames
+        // Deliberately after the endpoint above, which is resolved from the
+        // complete timeline: dropping a frame that shares an instant with its
+        // neighbour must not shorten the animation.
+        //
+        // libwebp derives each frame's on-screen duration from the gap to the
+        // next timestamp, so two frames on the same millisecond leave the
+        // first lasting 0ms -- encoded, paid for in bytes, never shown, and
+        // below the floor WhatsApp refuses a pack over.
+        var currentFrames = FrameSamplingPolicy.strictlyRisingIndices(frames.map { it.timestampMs })
+            .map(frames::get)
         var lastSize = -1
         while (true) {
             coroutineContext.ensureActive()
