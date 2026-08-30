@@ -1781,8 +1781,6 @@ class StickerPackRepository(private val appContext: Context) {
         var convertedCount = 0
         var animatedCount = 0
         var staticCount = 0
-        var firstConvertedFile: File? = null
-        var firstConvertedType: StickerMediaType? = null
         val convertedForFixup = mutableListOf<WhatsappConvertedSticker>()
 
         // Known only now that every sticker has been downloaded and
@@ -1816,10 +1814,6 @@ class StickerPackRepository(private val appContext: Context) {
                     convertedCount++
                     if (result.isAnimated) animatedCount++ else staticCount++
                     convertedForFixup.add(WhatsappConvertedSticker(file, type, outputFile, result.isAnimated))
-                    if (firstConvertedFile == null) {
-                        firstConvertedFile = file
-                        firstConvertedType = type
-                    }
                     updateStickerByRemoteId(packId, remoteId) {
                         it.copy(
                             convertedWhatsappPath = outputFile.absolutePath,
@@ -1903,8 +1897,24 @@ class StickerPackRepository(private val appContext: Context) {
 
         emit(PackOperationProgress.Progress(appContext.getString(R.string.stage_building_tray_icon), 0.9f))
         val trayFile = File(packDir, "tray.webp")
-        val trayReady = firstConvertedFile != null && firstConvertedType != null &&
-            StickerConversionPipeline.buildTrayIcon(firstConvertedFile, firstConvertedType, trayFile) is StickerConvertResult.Success
+        // The tray has to come from a sticker still in *this* pack, which is
+        // why it is picked here rather than carried down from the conversion
+        // loop. A type split copies the animated stickers into a pack of their
+        // own and then deletes this pack's copies, so the first sticker
+        // converted may no longer exist by the time the tray is built -- and
+        // buildTrayIcon on a deleted file leaves the pack with no tray icon at
+        // all, which is a pack WhatsApp refuses outright.
+        //
+        // convertedForFixup has had the split-out stickers removed above, so
+        // its first entry is the first surviving sticker in pack order -- the
+        // same one trayStickerRowId resolves to just below.
+        val traySource = convertedForFixup.firstOrNull()
+        val trayReady = traySource != null &&
+            StickerConversionPipeline.buildTrayIcon(
+                traySource.file,
+                traySource.type,
+                trayFile,
+            ) is StickerConvertResult.Success
         val trayStickerRowId = if (trayReady) {
             stickerDao.getStickersOnce(packId)
                 .sortedBy { it.position }
