@@ -360,8 +360,13 @@ fun PackGridCard(
                     .padding(18.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                StickerThumbnail(pack.trayIconPath, modifier = Modifier.size(56.dp).weight(1f, fill = false))
-                PackStatusChip(pack.status)
+                // No status chip here. A pinned pack is one the user chose to
+                // keep to hand, and it is Ready in all but the moments around
+                // a conversion -- so the tag reads "Ready" essentially always,
+                // saying nothing while taking the space beside the icon. The
+                // list card and the detail screen still carry it, where a pack
+                // that is mid-conversion or failed is actually worth spotting.
+                StickerThumbnail(pack.trayIconPath, modifier = Modifier.size(56.dp))
             }
             Column(
                 modifier = Modifier
