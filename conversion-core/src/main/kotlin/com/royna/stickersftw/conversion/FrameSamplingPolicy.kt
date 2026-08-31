@@ -65,7 +65,15 @@ object FrameSamplingPolicy {
      * [durationHintMs] comes from the complete pre-decode/pre-decimation
      * timeline. Holding the last retained frame to that fixed boundary keeps
      * `[0, 99]` from turning a 132ms `0/33/66/99` animation into 198ms, and
-     * keeps later size-budget frame cuts from changing playback speed. */
+     * keeps later size-budget frame cuts from changing playback speed.
+     *
+     * The floor is a whole frame, not a millisecond. The encoder derives the
+     * final frame's duration from the gap between it and this endpoint, so a
+     * `last + 1` floor produces a legal-looking one-millisecond frame -- above
+     * zero, and still below the minimum WhatsApp accepts, which rejects the
+     * pack it belongs to. A hint that lands at or before the last retained
+     * timestamp is exactly when that floor takes over: six of one real
+     * 27-sticker pack's stickers ended on a 1ms frame that way. */
     fun endTimestampMs(
         retainedTimestampsMs: List<Long>,
         durationHintMs: Long?,
@@ -74,7 +82,10 @@ object FrameSamplingPolicy {
         val first = retainedTimestampsMs.firstOrNull() ?: return null
         val last = retainedTimestampsMs.last()
         val hinted = durationHintMs?.takeIf { it > 0L }?.let { first + it }
-        return maxOf(last + 1L, hinted ?: last + estimateIntervalMs(retainedTimestampsMs, fallbackMs))
+        return maxOf(
+            last + SizeBudget.MIN_FRAME_DURATION_MS,
+            hinted ?: last + estimateIntervalMs(retainedTimestampsMs, fallbackMs),
+        )
     }
 
     /** Which frames to keep so that timestamps strictly rise.

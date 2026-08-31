@@ -138,10 +138,14 @@ class FrameSamplingPolicyTest {
         )
     }
 
+    /** A hint too small to reach the last frame hands control to the floor,
+     * and that floor is a whole frame rather than a millisecond: the encoder
+     * turns this gap into the final frame's duration, and 1ms is above zero
+     * but below what WhatsApp will accept. */
     @Test
     fun `duration hint cannot end before the last retained frame`() {
         assertEquals(
-            100L,
+            99L + SizeBudget.MIN_FRAME_DURATION_MS,
             FrameSamplingPolicy.endTimestampMs(
                 retainedTimestampsMs = listOf(0L, 99L),
                 durationHintMs = 40L,
@@ -237,5 +241,34 @@ class FrameSamplingPolicyTest {
 
         assertEquals(retained.distinct(), retained)
         assertEquals(listOf(0L, 40L, 80L, 120L, 160L, 240L, 280L, 320L), retained)
+    }
+
+    /** The encoder turns the gap between the last frame and this endpoint into
+     * that frame's duration. A one-millisecond floor is above zero and still
+     * below what WhatsApp accepts, so it produces a frame that looks legal and
+     * rejects the pack. */
+    @Test
+    fun `the final frame is never left below the minimum duration`() {
+        // A hint that lands before the last retained timestamp is what hands
+        // the floor control -- six stickers of one real pack ended this way.
+        val end = FrameSamplingPolicy.endTimestampMs(listOf(0L, 100L, 200L), durationHintMs = 150L)!!
+
+        assertTrue("final frame would be ${end - 200L}ms", end - 200L >= SizeBudget.MIN_FRAME_DURATION_MS)
+    }
+
+    @Test
+    fun `a hint that lands exactly on the last frame still leaves it showable`() {
+        val end = FrameSamplingPolicy.endTimestampMs(listOf(0L, 200L), durationHintMs = 200L)!!
+
+        assertEquals(200L + SizeBudget.MIN_FRAME_DURATION_MS, end)
+    }
+
+    /** A hint with room to spare still decides the endpoint, so ordinary
+     * playback speed is untouched. */
+    @Test
+    fun `a roomy hint is left in charge of the endpoint`() {
+        val end = FrameSamplingPolicy.endTimestampMs(listOf(0L, 33L, 66L, 99L), durationHintMs = 132L)!!
+
+        assertEquals(132L, end)
     }
 }
