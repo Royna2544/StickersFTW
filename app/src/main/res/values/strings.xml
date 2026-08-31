@@ -219,6 +219,10 @@ Splitting keeps both, as two packs. Keeping them together saves the smaller grou
     <string name="pack_detail_no_stickers">No converted stickers yet.</string>
     <string name="pack_detail_converted_app_version">Converted with app version %1$s</string>
     <string name="pack_detail_converted_app_version_unknown">Unknown</string>
+    <string name="pack_detail_telegram_link_label">Telegram pack link</string>
+    <string name="pack_detail_telegram_link_copied">Link copied</string>
+    <string name="pack_detail_telegram_link_no_app">Nothing on this device can open Telegram links.</string>
+    <string name="pack_detail_telegram_link_copy_action">Copy link</string>
     <string name="pack_detail_converted_app_build">build %1$d</string>
     <string name="action_reconvert_pack">Re-convert with this app version</string>
     <string name="reconversion_checking_telegram">Checking Telegram…</string>
