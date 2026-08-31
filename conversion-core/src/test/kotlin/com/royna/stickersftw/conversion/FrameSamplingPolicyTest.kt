@@ -162,6 +162,17 @@ class FrameSamplingPolicyTest {
     }
 
     @Test
+    fun `an arbitrary retained count spans both endpoints`() {
+        assertEquals(listOf(0, 3, 6, 9), FrameSamplingPolicy.evenlySpacedIndices(10, 4))
+        assertEquals(listOf(0, 4), FrameSamplingPolicy.evenlySpacedIndices(5, 2))
+        assertEquals(listOf(0), FrameSamplingPolicy.evenlySpacedIndices(5, 1))
+        // Asking for more than there are keeps every frame rather than
+        // repeating one to pad the count out.
+        assertEquals(listOf(0, 1, 2), FrameSamplingPolicy.evenlySpacedIndices(3, 8))
+        assertEquals(emptyList<Int>(), FrameSamplingPolicy.evenlySpacedIndices(0, 4))
+    }
+
+    @Test
     fun `empty timeline has no duration or end timestamp`() {
         assertNull(FrameSamplingPolicy.durationMs(emptyList()))
         assertNull(FrameSamplingPolicy.endTimestampMs(emptyList(), 132L))

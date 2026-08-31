@@ -35,6 +35,11 @@ object WebpAnimationEncoder {
      * muxing now makes its actual value visually irrelevant. */
     private const val STRUCTURAL_FRAME_DURATION_MS = 100
 
+    /** How many extra encodes the frame-count recovery may spend. Three
+     * probes close most of a 2:1 gap; each one is a full encode of the whole
+     * animation, and only runs when halving actually happened. */
+    private const val FRAME_RECOVERY_PROBES = 3
+
     /** libwebp leaves the alpha channel lossless by default, which is fine
      * until a sticker actually has one. Once Telegram video stickers started
      * keeping their transparency, the alpha plane dominated the file: walking
@@ -97,9 +102,14 @@ object WebpAnimationEncoder {
         // next timestamp, so two frames on the same millisecond leave the
         // first lasting 0ms -- encoded, paid for in bytes, never shown, and
         // below the floor WhatsApp refuses a pack over.
-        var currentFrames = FrameSamplingPolicy.strictlyRisingIndices(frames.map { it.timestampMs })
+        val sourceFrames = FrameSamplingPolicy.strictlyRisingIndices(frames.map { it.timestampMs })
             .map(frames::get)
+        var currentFrames = sourceFrames
         var lastSize = -1
+        // The smallest frame count already known not to fit at any quality.
+        // Halving lands somewhere below it, and the gap between the two is
+        // where the motion that need not have been dropped lives.
+        var smallestFailingCount = Int.MAX_VALUE
         while (true) {
             coroutineContext.ensureActive()
 
@@ -124,7 +134,19 @@ object WebpAnimationEncoder {
                 val size = bytes.size
                 lastSize = size
                 if (size in 1..maxBytes) {
-                    return ConversionOutcome.Success(size)
+                    val recovered = recoverDroppedFrames(
+                        sourceFrames,
+                        currentFrames.size,
+                        smallestFailingCount,
+                        bytes,
+                        targetPx,
+                        endTimestampMs,
+                        minimizeSize,
+                        ladder,
+                        maxBytes,
+                    )
+                    output.writeBytes(recovered)
+                    return ConversionOutcome.Success(recovered.size)
                 }
             }
 
@@ -177,9 +199,84 @@ object WebpAnimationEncoder {
                         "quality -- exceeds the ${maxBytes / 1024}KB budget.",
                 )
             }
+            smallestFailingCount = currentFrames.size
             currentFrames = FrameSamplingPolicy.halfFrameIndices(currentFrames.size)
                 .map(currentFrames::get)
         }
+    }
+
+    /** Wins back the frames halving threw away past the point it needed to.
+     *
+     * The frame-count lever is a 2:1 halving, so the count that finally fits
+     * can sit far below the largest one that would have. One real 85-frame
+     * sticker is the case: nothing fit at 85, so it halved to 43, which then
+     * fit at the *top* quality with 497KB of a 500KB budget. Every count
+     * between 44 and 84 was dismissed without being tried, and the frames in
+     * that gap are the ones a viewer notices -- the sticker's motion is
+     * concentrated in its second half, so uniform halving turned a shake into
+     * a smooth drift.
+     *
+     * A few probes between the fitting count and the smallest failing one
+     * recover most of that. Bounded deliberately: each probe is a full encode
+     * of the whole animation, and conversion already takes minutes for a pack
+     * of video stickers. The search keeps the largest result that fits and
+     * never returns anything worse than what it was handed. */
+    private suspend fun recoverDroppedFrames(
+        sourceFrames: List<TimedFrame>,
+        fittingCount: Int,
+        smallestFailingCount: Int,
+        fittingBytes: ByteArray,
+        targetPx: Int,
+        endTimestampMs: Int,
+        minimizeSize: Boolean,
+        ladder: IntArray,
+        maxBytes: Int,
+    ): ByteArray {
+        // Nothing was ever cut, so there is nothing to win back.
+        if (smallestFailingCount == Int.MAX_VALUE) return fittingBytes
+
+        // Probed at the bottom of the ladder rather than at the quality that
+        // just fit. A larger frame count only ever fits by spending less on
+        // each frame, so re-probing at the same quality just re-derives the
+        // count halving already found -- which is exactly what a first attempt
+        // at this did, costing five times the encode time to change nothing.
+        //
+        // Trading sharpness for frames is the right way round here: this only
+        // runs when the alternative is halving the animation, and a shake
+        // rendered slightly softer still reads as a shake where a smooth drift
+        // does not.
+        val probeQuality = ladder.last()
+        var best = fittingBytes
+        var fits = fittingCount
+        var fails = smallestFailingCount
+        repeat(FRAME_RECOVERY_PROBES) {
+            val candidateCount = (fits + fails) / 2
+            if (candidateCount <= fits || candidateCount >= fails) return best
+            coroutineContext.ensureActive()
+            val candidate = FrameSamplingPolicy
+                .evenlySpacedIndices(sourceFrames.size, candidateCount)
+                .map(sourceFrames::get)
+            val bytes = try {
+                encodeOnce(
+                    candidate,
+                    targetPx,
+                    endTimestampMs,
+                    minimizeSize,
+                    probeQuality,
+                    ENCODE_METHOD,
+                )
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                return best
+            }
+            if (bytes.size in 1..maxBytes) {
+                best = bytes
+                fits = candidateCount
+            } else {
+                fails = candidateCount
+            }
+        }
+        return best
     }
 
     /** Turns one still frame into a structurally animated WebP without

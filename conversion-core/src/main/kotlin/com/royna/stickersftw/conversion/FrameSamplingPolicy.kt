@@ -123,17 +123,25 @@ object FrameSamplingPolicy {
         return kept
     }
 
-    /** Roughly halves a frame list while retaining both visual endpoints.
-     * Dropping the final frame on every even-sized retry changes the pose held
-     * immediately before the loop returns to frame zero, which can introduce
-     * a conversion-only loop jump. */
-    fun halfFrameIndices(frameCount: Int): List<Int> {
-        if (frameCount <= 0) return emptyList()
-        if (frameCount <= 2) return List(frameCount) { it }
-        val retainedCount = (frameCount + 1) / 2
+    /** Picks [retainedCount] frames spread evenly across [frameCount], keeping
+     * both visual endpoints.
+     *
+     * Dropping the final frame changes the pose held immediately before the
+     * loop returns to frame zero, which reads as a conversion-only jump. */
+    fun evenlySpacedIndices(frameCount: Int, retainedCount: Int): List<Int> {
+        if (frameCount <= 0 || retainedCount <= 0) return emptyList()
+        if (retainedCount >= frameCount) return List(frameCount) { it }
+        if (retainedCount == 1) return listOf(0)
         val lastIndex = frameCount - 1
         return List(retainedCount) { index ->
             (index.toLong() * lastIndex / (retainedCount - 1)).toInt()
         }
+    }
+
+    /** Roughly halves a frame list while retaining both visual endpoints. */
+    fun halfFrameIndices(frameCount: Int): List<Int> {
+        if (frameCount <= 0) return emptyList()
+        if (frameCount <= 2) return List(frameCount) { it }
+        return evenlySpacedIndices(frameCount, (frameCount + 1) / 2)
     }
 }
